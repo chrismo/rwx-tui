@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/chrismo/rwx-tui/internal/graph"
@@ -96,8 +98,6 @@ func HomeView(runs []rwx.RunSummary, selected int, now time.Time) string {
 	b.WriteString("\n\n")
 	b.WriteString(RenderRunList(runs, selected, now))
 	b.WriteString("\n")
-	b.WriteString(theme.Faint.Render("↑/↓ move · enter: open · q: quit"))
-	b.WriteString("\n")
 	return b.String()
 }
 
@@ -128,6 +128,10 @@ type App struct {
 	mode    appMode
 	hasList bool // a list exists to return to via esc
 
+	keys     keyMap
+	help     help.Model
+	showHelp bool
+
 	runs     []rwx.RunSummary
 	selected int
 
@@ -140,7 +144,20 @@ type App struct {
 
 // NewApp builds the root model.
 func NewApp(client *rwx.Client, cfg AppConfig) App {
-	return App{client: client, cfg: cfg, now: time.Now, mode: modeLoading}
+	return App{
+		client: client,
+		cfg:    cfg,
+		now:    time.Now,
+		mode:   modeLoading,
+		keys:   defaultKeyMap(),
+		help:   help.New(),
+	}
+}
+
+// footerView renders the mode-aware keybar (or the full ? overlay).
+func (a App) footerView() string {
+	a.help.ShowAll = a.showHelp
+	return a.help.View(modeHelp{keys: a.keys, mode: a.mode})
 }
 
 type runsLoadedMsg struct {
@@ -203,20 +220,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Quit and help toggle are global.
+	switch {
+	case key.Matches(k, a.keys.Quit):
+		return a, tea.Quit
+	case key.Matches(k, a.keys.Help):
+		a.showHelp = !a.showHelp
+		return a, nil
+	}
+
 	switch a.mode {
 	case modeList:
-		switch k.String() {
-		case "ctrl+c", "q":
-			return a, tea.Quit
-		case "up", "k":
+		switch {
+		case key.Matches(k, a.keys.Up):
 			if a.selected > 0 {
 				a.selected--
 			}
-		case "down", "j":
+		case key.Matches(k, a.keys.Down):
 			if a.selected < len(a.runs)-1 {
 				a.selected++
 			}
-		case "enter":
+		case key.Matches(k, a.keys.Enter):
 			if len(a.runs) > 0 {
 				a.err = nil
 				a.mode = modeLoading
@@ -224,19 +248,12 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case modeGraph:
-		switch k.String() {
-		case "ctrl+c", "q":
-			return a, tea.Quit
-		case "esc", "backspace", "h", "left":
+		if key.Matches(k, a.keys.Back) {
 			if a.hasList {
 				a.err = nil
 				a.mode = modeList
 				return a, nil
 			}
-			return a, tea.Quit
-		}
-	case modeLoading:
-		if k.String() == "ctrl+c" {
 			return a, tea.Quit
 		}
 	}
@@ -255,10 +272,9 @@ func (a App) View() string {
 		if a.err != nil {
 			out += theme.Failure.Render(fmt.Sprintf("error: %v", a.err)) + "\n"
 		}
-		return out
+		return out + a.footerView() + "\n"
 	case modeGraph:
-		return Screen(a.run, a.graph, a.layout) +
-			theme.Faint.Render("esc: back · q: quit") + "\n"
+		return Screen(a.run, a.graph, a.layout) + a.footerView() + "\n"
 	}
 	return ""
 }
