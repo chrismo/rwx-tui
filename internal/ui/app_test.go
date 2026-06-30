@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/chrismo/rwx-tui/internal/rwx"
 )
 
 // The footer keybar is generated from the keymap, so labels can't drift from
@@ -14,7 +16,7 @@ func TestFooterKeybarByMode(t *testing.T) {
 
 	a.mode = modeList
 	listFooter := a.footerView()
-	for _, want := range []string{"open", "filter", "quit"} {
+	for _, want := range []string{"open", "all", "mine", "quit"} {
 		if !strings.Contains(listFooter, want) {
 			t.Errorf("list footer missing %q:\n%s", want, listFooter)
 		}
@@ -110,6 +112,49 @@ func TestGraphSelectionNav(t *testing.T) {
 	send("l") // right within layer
 	if a.selectedNode != "go" {
 		t.Errorf("after right = %q, want go", a.selectedNode)
+	}
+}
+
+func TestListPaginationAppends(t *testing.T) {
+	a := NewApp(nil, AppConfig{Filter: rwx.ListFilter{Limit: 30}})
+	runs := loadRunList(t)
+	m, _ := a.Update(runsLoadedMsg{runs: runs, cursor: "CURSOR"})
+	a = m.(App)
+	if a.nextCursor != "CURSOR" || len(a.runs) != len(runs) {
+		t.Fatalf("initial page: cursor=%q n=%d", a.nextCursor, len(a.runs))
+	}
+
+	// Pressing down at the last row with a cursor requests the next page.
+	a.selected = len(a.runs) - 1
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	a = m.(App)
+	if !a.loadingMore {
+		t.Error("down at bottom should set loadingMore")
+	}
+
+	// The appended page grows the list and clears the cursor.
+	m, _ = a.Update(runsLoadedMsg{runs: runs[:2], cursor: "", append: true})
+	a = m.(App)
+	if len(a.runs) != len(runs)+2 {
+		t.Errorf("after append n=%d, want %d", len(a.runs), len(runs)+2)
+	}
+	if a.nextCursor != "" || a.loadingMore {
+		t.Errorf("append should clear cursor (%q) and loadingMore (%v)", a.nextCursor, a.loadingMore)
+	}
+}
+
+func TestListFilterToggleMine(t *testing.T) {
+	a := NewApp(nil, AppConfig{Filter: rwx.ListFilter{Limit: 30}})
+	m, _ := a.Update(runsLoadedMsg{runs: loadRunList(t)})
+	a = m.(App)
+
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	a = m.(App)
+	if !a.cfg.Filter.Mine {
+		t.Error("m should set the Mine filter")
+	}
+	if a.mode != modeLoading {
+		t.Error("filter toggle should trigger a reload (modeLoading)")
 	}
 }
 

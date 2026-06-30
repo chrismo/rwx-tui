@@ -385,7 +385,7 @@ and macOS notifications.
   the selected node opens it (`JoinHorizontal` split); new
   `rwx.Client.Logs(ctx,id,key)` shelling `rwx logs <id> --task <key>` (mirror
   `Results`). **Prereq: item 2.**
-- [ ] 4. **Run-list pagination + filters** — `paginator.Model`; next page via
+- [x] 4. **Run-list pagination + filters** — `paginator.Model`; next page via
   `ListFilter{Cursor: rl.NextCursor}`; `b`/`a`/`m` toggle `ListFilter`
   (branch/all/mine) and re-issue `listRunsCmd`. Reuses `ListRuns` as-is.
   Independent of 1–3.

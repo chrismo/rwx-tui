@@ -153,8 +153,10 @@ type App struct {
 	height   int
 	viewport viewport.Model
 
-	runs     []rwx.RunSummary
-	selected int
+	runs        []rwx.RunSummary
+	selected    int
+	nextCursor  string // pagination cursor for the next page ("" = no more)
+	loadingMore bool
 
 	run          rwx.Run
 	graph        *graph.Graph
@@ -305,8 +307,10 @@ func (a App) footerView() string {
 }
 
 type runsLoadedMsg struct {
-	runs []rwx.RunSummary
-	err  error
+	runs   []rwx.RunSummary
+	cursor string
+	append bool
+	err    error
 }
 
 type runOpenedMsg struct {
@@ -314,10 +318,10 @@ type runOpenedMsg struct {
 	err error
 }
 
-func listRunsCmd(c *rwx.Client, f rwx.ListFilter) tea.Cmd {
+func listRunsCmd(c *rwx.Client, f rwx.ListFilter, appendPage bool) tea.Cmd {
 	return func() tea.Msg {
 		rl, err := c.ListRuns(context.Background(), f)
-		return runsLoadedMsg{runs: rl.Runs, err: err}
+		return runsLoadedMsg{runs: rl.Runs, cursor: rl.NextCursor, append: appendPage, err: err}
 	}
 }
 
@@ -340,12 +344,21 @@ func openRunCmd(c *rwx.Client, id string) tea.Cmd {
 	}
 }
 
+// reloadList applies a new filter and reloads the run list from the first page.
+func (a App) reloadList(f rwx.ListFilter) (tea.Model, tea.Cmd) {
+	a.cfg.Filter = f
+	a.nextCursor = ""
+	a.err = nil
+	a.mode = modeLoading
+	return a, tea.Batch(listRunsCmd(a.client, f, false), a.spinner.Tick)
+}
+
 func (a App) Init() tea.Cmd {
 	var fetch tea.Cmd
 	if a.cfg.Run != "" {
 		fetch = openRunCmd(a.client, a.cfg.Run)
 	} else {
-		fetch = listRunsCmd(a.client, a.cfg.Filter)
+		fetch = listRunsCmd(a.client, a.cfg.Filter, false)
 	}
 	return tea.Batch(fetch, a.spinner.Tick)
 }
@@ -384,7 +397,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 	case runsLoadedMsg:
 		a.err = m.err
-		a.runs = m.runs
+		a.loadingMore = false
+		if m.append {
+			a.runs = append(a.runs, m.runs...)
+		} else {
+			a.runs = m.runs
+			a.selected = 0
+		}
+		a.nextCursor = m.cursor
 		a.hasList = true
 		a.mode = modeList
 		if a.selected >= len(a.runs) {
@@ -392,7 +412,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.resize()
 		a.refresh()
-		a.viewport.GotoTop()
+		if !m.append {
+			a.viewport.GotoTop()
+		}
 		return a, nil
 	case runOpenedMsg:
 		a.err = m.err
@@ -475,6 +497,12 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case key.Matches(k, a.keys.Down):
 			if a.selected < len(a.runs)-1 {
 				a.selected++
+			} else if a.nextCursor != "" && !a.loadingMore {
+				// At the bottom with more pages: fetch and append the next page.
+				a.loadingMore = true
+				f := a.cfg.Filter
+				f.Cursor = a.nextCursor
+				return a, listRunsCmd(a.client, f, true)
 			}
 		case key.Matches(k, a.keys.Enter):
 			if len(a.runs) > 0 {
@@ -482,6 +510,18 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.mode = modeLoading
 				return a, tea.Batch(openRunCmd(a.client, a.runs[a.selected].ID), a.spinner.Tick)
 			}
+		case key.Matches(k, a.keys.All):
+			return a.reloadList(rwx.ListFilter{Limit: a.cfg.Filter.Limit})
+		case key.Matches(k, a.keys.Mine):
+			return a.reloadList(rwx.ListFilter{Limit: a.cfg.Filter.Limit, Mine: true})
+		case key.Matches(k, a.keys.Branch):
+			if a.selected < len(a.runs) && a.runs[a.selected].Branch != "" {
+				return a.reloadList(rwx.ListFilter{Limit: a.cfg.Filter.Limit, Branch: a.runs[a.selected].Branch})
+			}
+		case key.Matches(k, a.keys.Refresh):
+			f := a.cfg.Filter
+			f.Cursor = ""
+			return a.reloadList(f)
 		}
 	case modeGraph:
 		// When the detail pane is open it captures Back/Logs; other keys are

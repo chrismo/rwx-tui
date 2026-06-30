@@ -20,6 +20,9 @@ type keyMap struct {
 	Refresh key.Binding
 	Top     key.Binding
 	Bottom  key.Binding
+	All     key.Binding
+	Mine    key.Binding
+	Branch  key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -38,6 +41,9 @@ func defaultKeyMap() keyMap {
 		Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Top:     key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),
 		Bottom:  key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
+		All:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all")),
+		Mine:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mine")),
+		Branch:  key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "branch")),
 	}
 }
 
@@ -52,7 +58,7 @@ type modeHelp struct {
 func (h modeHelp) ShortHelp() []key.Binding {
 	switch h.mode {
 	case modeList:
-		return []key.Binding{h.keys.Up, h.keys.Down, h.keys.Enter, h.keys.Filter, h.keys.Refresh, h.keys.Help, h.keys.Quit}
+		return []key.Binding{h.keys.Up, h.keys.Down, h.keys.Enter, h.keys.All, h.keys.Mine, h.keys.Branch, h.keys.Refresh, h.keys.Help, h.keys.Quit}
 	case modeGraph:
 		return []key.Binding{h.keys.Up, h.keys.Down, h.keys.Left, h.keys.Right, h.keys.Isolate, h.keys.Filter, h.keys.Back, h.keys.Help, h.keys.Quit}
 	default:
