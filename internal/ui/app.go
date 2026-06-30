@@ -8,7 +8,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/chrismo/rwx-tui/internal/graph"
 	"github.com/chrismo/rwx-tui/internal/rwx"
@@ -132,6 +134,10 @@ type App struct {
 	help     help.Model
 	showHelp bool
 
+	width    int
+	height   int
+	viewport viewport.Model
+
 	runs     []rwx.RunSummary
 	selected int
 
@@ -142,16 +148,49 @@ type App struct {
 	err error
 }
 
-// NewApp builds the root model.
+// NewApp builds the root model. The viewport is seeded with a sane default size
+// so the first frame renders before the initial WindowSizeMsg arrives.
 func NewApp(client *rwx.Client, cfg AppConfig) App {
 	return App{
-		client: client,
-		cfg:    cfg,
-		now:    time.Now,
-		mode:   modeLoading,
-		keys:   defaultKeyMap(),
-		help:   help.New(),
+		client:   client,
+		cfg:      cfg,
+		now:      time.Now,
+		mode:     modeLoading,
+		keys:     defaultKeyMap(),
+		help:     help.New(),
+		width:    80,
+		height:   24,
+		viewport: viewport.New(80, 23),
 	}
+}
+
+// bodyContent is the scrollable body for the current mode (the same pure-render
+// output that --print uses, fed into the viewport).
+func (a App) bodyContent() string {
+	switch a.mode {
+	case modeList:
+		return HomeView(a.runs, a.selected, a.now())
+	case modeGraph:
+		return Screen(a.run, a.graph, a.layout)
+	default:
+		return ""
+	}
+}
+
+// refresh re-feeds the viewport from the current state.
+func (a *App) refresh() {
+	a.viewport.SetContent(a.bodyContent())
+}
+
+// resize sizes the viewport to the window minus the footer keybar.
+func (a *App) resize() {
+	footerH := lipgloss.Height(a.footerView())
+	h := a.height - footerH
+	if h < 1 {
+		h = 1
+	}
+	a.viewport.Width = a.width
+	a.viewport.Height = h
 }
 
 // footerView renders the mode-aware keybar (or the full ? overlay).
@@ -193,6 +232,11 @@ func (a App) Init() tea.Cmd {
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
+	case tea.WindowSizeMsg:
+		a.width, a.height = m.Width, m.Height
+		a.resize()
+		a.refresh()
+		return a, nil
 	case runsLoadedMsg:
 		a.err = m.err
 		a.runs = m.runs
@@ -201,6 +245,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.selected >= len(a.runs) {
 			a.selected = 0
 		}
+		a.resize()
+		a.refresh()
+		a.viewport.GotoTop()
 		return a, nil
 	case runOpenedMsg:
 		a.err = m.err
@@ -212,9 +259,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if a.hasList {
 			a.mode = modeList // stay usable: drop back to the list on error
 		}
+		a.resize()
+		a.refresh()
+		a.viewport.GotoTop()
 		return a, nil
 	case tea.KeyMsg:
-		return a.handleKey(m)
+		model, cmd := a.handleKey(m)
+		a = model.(App)
+		a.refresh()
+		// In graph mode there is no node cursor yet, so nav keys scroll the
+		// viewport (selection arrives in a later item).
+		var vpCmd tea.Cmd
+		if a.mode == modeGraph {
+			a.viewport, vpCmd = a.viewport.Update(m)
+		}
+		return a, tea.Batch(cmd, vpCmd)
 	}
 	return a, nil
 }
@@ -261,20 +320,18 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) View() string {
-	if a.err != nil && a.mode != modeList {
-		return fmt.Sprintf("error: %v\n\npress q to quit\n", a.err)
+	if a.err != nil && a.mode == modeLoading {
+		return theme.Failure.Render(fmt.Sprintf("error: %v", a.err)) + "\n\npress q to quit\n"
 	}
 	switch a.mode {
 	case modeLoading:
-		return theme.Faint.Render("loading…") + "\n"
-	case modeList:
-		out := HomeView(a.runs, a.selected, a.now())
-		if a.err != nil {
-			out += theme.Failure.Render(fmt.Sprintf("error: %v", a.err)) + "\n"
+		return theme.Faint.Render("loading…")
+	case modeList, modeGraph:
+		footer := a.footerView()
+		if a.err != nil && a.mode == modeList {
+			footer = theme.Failure.Render(fmt.Sprintf("error: %v", a.err)) + "\n" + footer
 		}
-		return out + a.footerView() + "\n"
-	case modeGraph:
-		return Screen(a.run, a.graph, a.layout) + a.footerView() + "\n"
+		return lipgloss.JoinVertical(lipgloss.Left, a.viewport.View(), footer)
 	}
 	return ""
 }
