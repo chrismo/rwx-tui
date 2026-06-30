@@ -1,4 +1,6 @@
 # Go build output
+/bin/
+/dist/
 /rwxtui
 /cmd/rwxtui/rwxtui
 *.test

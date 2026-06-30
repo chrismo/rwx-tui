@@ -45,14 +45,15 @@ tasks:
       - go.mod
       - go.sum
 
+  # vet/test/build call build.sh so CI runs exactly what we run locally.
   - key: vet
     use: deps
-    run: go vet ./...
+    run: ./build.sh vet
 
   - key: test
     use: deps
-    run: go test ./...
+    run: ./build.sh test
 
   - key: build
     use: deps
-    run: go build ./...
+    run: ./build.sh build

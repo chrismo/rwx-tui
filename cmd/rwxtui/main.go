@@ -14,6 +14,13 @@ import (
 	"github.com/chrismo/rwx-tui/internal/ui"
 )
 
+// Build metadata, injected at build time via -ldflags -X (see build.sh).
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 // options holds the parsed command-line configuration.
 type options struct {
 	branch     string // branch to resolve a run for (default: current git branch)
@@ -21,6 +28,7 @@ type options struct {
 	run        string // explicit run ID to open
 	dir        string // checkout dir for the static-YAML fallback (default: cwd)
 	print      bool   // render once to stdout and exit (no interactive TUI)
+	version    bool   // print version and exit
 }
 
 func parseFlags(args []string) (options, error) {
@@ -31,6 +39,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.run, "run", "", "explicit run ID to open")
 	fs.StringVar(&o.dir, "dir", ".", "checkout directory for the static-YAML fallback")
 	fs.BoolVar(&o.print, "print", false, "render once to stdout and exit (no interactive TUI)")
+	fs.BoolVar(&o.version, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -49,6 +58,10 @@ func main() {
 }
 
 func run(opts options) error {
+	if opts.version {
+		fmt.Printf("rwxtui %s (commit %s, built %s)\n", version, commit, date)
+		return nil
+	}
 	if opts.run == "" {
 		return fmt.Errorf("a run ID is required for now: pass --run <id> " +
 			"(branch resolution via `rwx runs list` is the next step)")
