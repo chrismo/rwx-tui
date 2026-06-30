@@ -334,7 +334,7 @@ and macOS notifications.
 
 **Backlog (in order):**
 
-- [ ] 0. **Phase 0: TUI foundation** — build the baseline before features.
+- [x] 0. **Phase 0: TUI foundation** — build the baseline before features.
   Sequence: deps → theme → keymap → resize → viewport → spinner → mouse.
   - **P0.1 Deps:** `go get github.com/charmbracelet/bubbles@<v1-compatible tag>`;
     promote `lipgloss` to a direct require; `go mod tidy`; `./build.sh vet`
