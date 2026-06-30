@@ -7,7 +7,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
 	"github.com/chrismo/rwx-tui/internal/graph"
 	"github.com/chrismo/rwx-tui/internal/rwx"
@@ -55,25 +54,25 @@ func Screen(run rwx.Run, g *graph.Graph, l *graph.LayoutData) string {
 		status = "in progress"
 	}
 	header := fmt.Sprintf("RWX run %s · %s · %s", short(run.RunID), run.DefinitionPath, status)
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render(header))
+	b.WriteString(theme.Header.Render(header))
 	b.WriteString("\n")
 
 	cp := graph.CriticalPath(g)
 	if line := CriticalPathLine(cp); line != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("5")).Render(line))
+		b.WriteString(theme.Special.Render(line))
 		b.WriteString("\n")
 	}
 
 	fi := graph.AnalyzeFailures(g)
 	if line := FailureLine(fi); line != "" {
-		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(line))
+		b.WriteString(theme.Failure.Render(line))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 
 	b.WriteString(RenderGraph(g, l, RenderOpts{Crit: cp, Failure: fi}))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Faint(true).Render(Legend()))
+	b.WriteString(theme.Faint.Render(Legend()))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -93,11 +92,11 @@ func HomeView(runs []rwx.RunSummary, selected int, now time.Time) string {
 	if len(runs) > 0 && runs[0].RepositoryName != "" {
 		header += " · " + runs[0].RepositoryName
 	}
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render(header))
+	b.WriteString(theme.Header.Render(header))
 	b.WriteString("\n\n")
 	b.WriteString(RenderRunList(runs, selected, now))
 	b.WriteString("\n")
-	b.WriteString(lipgloss.NewStyle().Faint(true).Render("↑/↓ move · enter: open · q: quit"))
+	b.WriteString(theme.Faint.Render("↑/↓ move · enter: open · q: quit"))
 	b.WriteString("\n")
 	return b.String()
 }
@@ -250,16 +249,16 @@ func (a App) View() string {
 	}
 	switch a.mode {
 	case modeLoading:
-		return lipgloss.NewStyle().Faint(true).Render("loading…") + "\n"
+		return theme.Faint.Render("loading…") + "\n"
 	case modeList:
 		out := HomeView(a.runs, a.selected, a.now())
 		if a.err != nil {
-			out += lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Render(fmt.Sprintf("error: %v", a.err)) + "\n"
+			out += theme.Failure.Render(fmt.Sprintf("error: %v", a.err)) + "\n"
 		}
 		return out
 	case modeGraph:
 		return Screen(a.run, a.graph, a.layout) +
-			lipgloss.NewStyle().Faint(true).Render("esc: back · q: quit") + "\n"
+			theme.Faint.Render("esc: back · q: quit") + "\n"
 	}
 	return ""
 }

@@ -5,31 +5,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/chrismo/rwx-tui/internal/rwx"
 )
 
 // runGlyph returns a glyph and color for a run-level status. In-progress runs
-// are distinguished from their (not yet meaningful) result.
-func runGlyph(s rwx.RunStatus) (string, lipgloss.Color) {
+// are distinguished from their (not yet meaningful) result. Color comes from the
+// theme (theme.RunStatus); only the glyph lives here.
+func runGlyph(s rwx.RunStatus) string {
 	switch s.Execution {
 	case "in_progress":
-		return "●", lipgloss.Color("3") // yellow
+		return "●"
 	case "waiting":
-		return "○", lipgloss.Color("8") // gray
+		return "○"
 	case "aborted":
-		return "⊘", lipgloss.Color("8")
+		return "⊘"
 	}
 	switch s.Result {
 	case "succeeded":
-		return "✓", lipgloss.Color("2") // green
+		return "✓"
 	case "failed":
-		return "✗", lipgloss.Color("1") // red
+		return "✗"
 	case "debugged", "sandboxed":
-		return "◆", lipgloss.Color("5") // magenta
+		return "◆"
 	default:
-		return "○", lipgloss.Color("8") // no_result
+		return "○"
 	}
 }
 
@@ -37,7 +36,7 @@ func runGlyph(s rwx.RunStatus) (string, lipgloss.Color) {
 // row marked. now is injected so the relative ages are testable.
 func RenderRunList(runs []rwx.RunSummary, selected int, now time.Time) string {
 	if len(runs) == 0 {
-		return lipgloss.NewStyle().Faint(true).Render("  no runs found") + "\n"
+		return theme.Faint.Render("  no runs found") + "\n"
 	}
 	var b strings.Builder
 	for i, r := range runs {
@@ -45,12 +44,12 @@ func RenderRunList(runs []rwx.RunSummary, selected int, now time.Time) string {
 		if i == selected {
 			cursor = "› "
 		}
-		glyph, color := runGlyph(r.Status)
+		glyph := runGlyph(r.Status)
 		result := r.Status.Result
 		if r.Status.Execution == "in_progress" {
 			result = "running"
 		}
-		left := lipgloss.NewStyle().Foreground(color).Render(fmt.Sprintf("%s %-9s", glyph, result))
+		left := theme.RunStatus(r.Status).Render(fmt.Sprintf("%s %-9s", glyph, result))
 
 		row := fmt.Sprintf("%s%s  %-13s  %-26s  %8s  %5s",
 			cursor, left,
@@ -60,7 +59,7 @@ func RenderRunList(runs []rwx.RunSummary, selected int, now time.Time) string {
 			runtimeStr(r.CompletedRuntimeSeconds),
 		)
 		if i == selected {
-			row = lipgloss.NewStyle().Bold(true).Render(row)
+			row = theme.Selected.Render(row)
 		}
 		b.WriteString(row)
 		b.WriteString("\n")

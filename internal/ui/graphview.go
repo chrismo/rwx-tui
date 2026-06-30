@@ -11,26 +11,21 @@ import (
 	"github.com/chrismo/rwx-tui/internal/rwx"
 )
 
-// stateStyle maps a display state to a glyph and a color. Colors are applied via
-// lipgloss; in a non-color terminal (tests, pipes) only the glyph/text shows.
-type stateStyle struct {
-	glyph string
-	color lipgloss.Color
-}
-
-var stateStyles = map[rwx.DisplayState]stateStyle{
-	rwx.StateRan:      {glyph: "✓", color: lipgloss.Color("2")},  // green
-	rwx.StateCacheHit: {glyph: "⚡", color: lipgloss.Color("6")},  // cyan
-	rwx.StateRunning:  {glyph: "●", color: lipgloss.Color("3")},  // yellow
-	rwx.StateWaiting:  {glyph: "○", color: lipgloss.Color("8")},  // gray
-	rwx.StateFailed:   {glyph: "✗", color: lipgloss.Color("1")},  // red
-	rwx.StateSkipped:  {glyph: "⊘", color: lipgloss.Color("8")},  // gray
-	rwx.StatePending:  {glyph: "·", color: lipgloss.Color("8")},  // gray
+// stateGlyphs maps a display state to its glyph. Color comes from the theme
+// (theme.State); glyphs live here so the render layout stays stable.
+var stateGlyphs = map[rwx.DisplayState]string{
+	rwx.StateRan:      "✓",
+	rwx.StateCacheHit: "⚡",
+	rwx.StateRunning:  "●",
+	rwx.StateWaiting:  "○",
+	rwx.StateFailed:   "✗",
+	rwx.StateSkipped:  "⊘",
+	rwx.StatePending:  "·",
 }
 
 func glyphFor(s rwx.DisplayState) string {
-	if st, ok := stateStyles[s]; ok {
-		return st.glyph
+	if g, ok := stateGlyphs[s]; ok {
+		return g
 	}
 	return "?"
 }
@@ -63,11 +58,8 @@ func RenderGraph(g *graph.Graph, l *graph.LayoutData, opts RenderOpts) string {
 }
 
 func renderCell(n *graph.Node, onCrit, onBlast bool) string {
-	st, ok := stateStyles[n.State]
-	if !ok {
-		st = stateStyle{glyph: "?", color: lipgloss.Color("8")}
-	}
-	label := fmt.Sprintf("%s %s", st.glyph, n.Key)
+	fg := theme.State(n.State).GetForeground()
+	label := fmt.Sprintf("%s %s", glyphFor(n.State), n.Key)
 	if n.HasTiming && n.DurationSeconds > 0 {
 		label += fmt.Sprintf(" (%ds)", n.DurationSeconds)
 	}
@@ -78,14 +70,14 @@ func renderCell(n *graph.Node, onCrit, onBlast bool) string {
 	if onCrit {
 		border = lipgloss.ThickBorder()
 	}
-	borderColor := st.color
+	borderColor := fg
 	if onBlast {
-		borderColor = lipgloss.Color("1") // red: affected by failure
+		borderColor = theme.Failure.GetForeground() // affected by failure
 	}
 	box := lipgloss.NewStyle().
 		Border(border).
 		BorderForeground(borderColor).
-		Foreground(st.color).
+		Foreground(fg).
 		Bold(onCrit).
 		Padding(0, 1).
 		MarginRight(2)
@@ -124,7 +116,7 @@ func Legend() string {
 	}
 	parts := make([]string, 0, len(order))
 	for _, s := range order {
-		parts = append(parts, fmt.Sprintf("%s %s", stateStyles[s].glyph, s))
+		parts = append(parts, fmt.Sprintf("%s %s", glyphFor(s), s))
 	}
 	return strings.Join(parts, "   ")
 }

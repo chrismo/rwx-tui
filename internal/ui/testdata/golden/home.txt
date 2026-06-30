@@ -1,0 +1,12 @@
+rwxtui · rwx-tui
+
+› ✓ succeeded  .rwx/ci.yml    CLI initiated run of .rwx…   21m ago    33s
+  ✓ succeeded  .rwx/ci.yml    CLI initiated run of .rwx…   45m ago    32s
+  ✓ succeeded  .rwx/ci.yml    CLI initiated run of .rwx…   56m ago    40s
+  ✓ succeeded  .rwx/ci.yml    CLI initiated run of .rwx…    1h ago    30s
+  ✓ succeeded  .rwx/ci.yml    CLI initiated run of .rwx…    1h ago    41s
+  ✓ succeeded  .rwx/ci.yml    CLI initiated run of .rwx…    1h ago    30s
+  ✗ failed     .rwx/ci.yml    CLI initiated run of .rwx…    1h ago    70s
+  ✓ succeeded  .rwx/prime-cache.yml  Prime Default Base Image …    2h ago    59s
+
+↑/↓ move · enter: open · q: quit
