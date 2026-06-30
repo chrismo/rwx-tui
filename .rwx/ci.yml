@@ -1,0 +1,59 @@
+# RWX CI for rwx-tui — dogfooding: this tool's own build runs on RWX.
+#
+# Run locally without committing/pushing (RWX patches your working tree):
+#   rwx lint .rwx/ci.yml
+#   rwx run  .rwx/ci.yml --wait        # needs `rwx login` first
+#
+# Graph shape: code + go  ->  deps  ->  {vet, test, build} (last three run in
+# parallel, which also gives the TUI a real run with parallelism to render).
+
+on:
+  cli:
+    init:
+      commit-sha: ${{ event.git.sha }}
+  github:
+    push:
+      init:
+        commit-sha: ${{ event.git.sha }}
+    pull_request:
+      init:
+        commit-sha: ${{ event.git.sha }}
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.1.1
+
+tasks:
+  # Clone the repo. For a public repo you can drop `github-token`; for a private
+  # repo it requires the RWX GitHub app to be installed (provides github.token).
+  - key: code
+    call: git/clone 2.0.7
+    with:
+      repository: https://github.com/chrismo/rwx-tui.git
+      ref: ${{ init.commit-sha }}
+      github-token: ${{ github.token }}
+
+  - key: go
+    call: golang/install 1.2.1
+    with:
+      go-version: "1.26.4"
+
+  # Download modules. Filtered so the cache only busts when go.mod/go.sum change.
+  - key: deps
+    use: [code, go]
+    run: go mod download
+    filter:
+      - go.mod
+      - go.sum
+
+  - key: vet
+    use: deps
+    run: go vet ./...
+
+  - key: test
+    use: deps
+    run: go test ./...
+
+  - key: build
+    use: deps
+    run: go build ./...

@@ -1,0 +1,11 @@
+# Go build output
+/rwxtui
+/cmd/rwxtui/rwxtui
+*.test
+*.out
+coverage.*
+
+# RWX agent skill is installed globally (~/.claude/skills/rwx), not in this repo.
+# These were written by an accidental project-level skill install.
+.agents/
+skills-lock.json
