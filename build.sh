@@ -8,8 +8,11 @@
 #   ./build.sh build           # version-stamped host binary -> bin/crux
 #   ./build.sh ci              # vet + test + build (what RWX runs, end to end)
 #   ./build.sh version         # print the computed version string
-#   ./build.sh snapshot        # goreleaser dry run: build all platforms, no publish
+#   ./build.sh snapshot        # goreleaser dry run: all platforms + refresh bin/crux
 #   ./build.sh release vX.Y.Z  # tag, push, and publish the release (local goreleaser)
+#
+# snapshot and release both refresh bin/crux, so a local run after either one is
+# never stale. For plain local iteration just use: ./build.sh build && bin/crux
 
 set -eu
 
@@ -59,9 +62,11 @@ cmd_ci() {
 }
 
 # Full goreleaser build across all platforms without publishing — a pre-flight.
+# Also refreshes the host binary (bin/crux) so it never lags behind a snapshot.
 cmd_snapshot() {
 	require goreleaser
 	goreleaser release --snapshot --clean
+	cmd_build
 }
 
 # Cut a release locally: validate, test, tag, push the tag, then goreleaser
@@ -84,10 +89,12 @@ cmd_release() {
 		exit 1
 	fi
 
-	# Fail before tagging anything.
+	# Fail before tagging anything. cmd_build also refreshes bin/crux so the
+	# local host binary matches the commit being released.
 	goreleaser check
 	cmd_vet
 	cmd_test
+	cmd_build
 
 	git tag -a "$_v" -m "$_v"
 	git push origin "$_v"
