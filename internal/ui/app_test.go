@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/chrismo/crux/internal/graph"
 	"github.com/chrismo/crux/internal/rwx"
 )
 
@@ -238,7 +240,7 @@ func TestGraphPinToggle(t *testing.T) {
 	}
 
 	press("p") // pin code's cone
-	if len(a.pins) != 1 || a.pins[0] != "code" {
+	if len(a.pins) != 1 || a.pins[0].key != "code" {
 		t.Fatalf("pins = %v, want [code]", a.pins)
 	}
 	fs := a.focusSet()
@@ -255,6 +257,84 @@ func TestGraphPinToggle(t *testing.T) {
 	}
 	if a.focusSet() != nil {
 		t.Errorf("focusSet should be nil with no pins")
+	}
+}
+
+// A second pin narrows the view to the intersection of cones: pinning a node
+// with several parents, then one of those parents, drops the sibling parents.
+func TestPinsIntersect(t *testing.T) {
+	run := loadRun(t, "sample_dag_failed.json")
+	g := graph.Build(run)
+	a := &App{graph: g, layout: graph.Layout(g), filterInput: textinput.New()}
+
+	// integration has three parents: build-api, build-worker, build-web.
+	a.togglePin("integration")
+	fs := a.focusSet()
+	for _, p := range []string{"build-api", "build-worker", "build-web"} {
+		if !fs[p] {
+			t.Fatalf("cone(integration) should include parent %s: %v", p, fs)
+		}
+	}
+
+	// build-api is already visible, so pinning it refines (intersects) — the
+	// sibling parents drop out.
+	a.togglePin("build-api")
+	if len(a.pins) != 2 || a.pins[1].refine != true {
+		t.Fatalf("second pin of a visible node should refine: %+v", a.pins)
+	}
+	fs = a.focusSet()
+	if !fs["integration"] || !fs["build-api"] {
+		t.Errorf("pinned anchors must stay visible: %v", fs)
+	}
+	if fs["build-worker"] || fs["build-web"] {
+		t.Errorf("intersection should hide sibling parents build-worker/build-web: %v", fs)
+	}
+}
+
+// Pinning a node from outside the current pin view (found via the global
+// filter) adds it via union — both cones stay visible.
+func TestPinsUnionWhenAddedFromElsewhere(t *testing.T) {
+	run := loadRun(t, "sample_dag_failed.json")
+	g := graph.Build(run)
+	a := &App{graph: g, layout: graph.Layout(g), filterInput: textinput.New()}
+
+	a.togglePin("go-deps") // Go branch
+	if a.focusSet()["node-deps"] {
+		t.Fatal("precondition: node-deps should be outside go-deps' cone")
+	}
+	a.togglePin("node-deps") // outside the current view → union (add)
+	if len(a.pins) != 2 || a.pins[1].refine != false {
+		t.Fatalf("pinning a node outside the view should add (union): %+v", a.pins)
+	}
+	fs := a.focusSet()
+	if !fs["build-api"] || !fs["build-web"] {
+		t.Errorf("union should keep both cones (build-api + build-web): %v", fs)
+	}
+}
+
+// The filter is a global finder: while active it searches the whole graph,
+// overriding the pin view, and pinning clears it (snapping back to the pins).
+func TestFilterFindsOutsidePinsThenPinClearsIt(t *testing.T) {
+	a := openGraph(t, "sample_dag_failed.json")
+	a.togglePin("go-deps") // pin the Go branch
+
+	// node-deps is outside go-deps' cone; the global filter still finds it.
+	a.filterInput.SetValue("node-deps")
+	vis := computeVisible(a.graph, a.currentOverlay())
+	if !vis["node-deps"] {
+		t.Fatalf("active filter should find node-deps globally: %v", vis)
+	}
+
+	// Pin it: the filter clears and the view returns to the pins (now unioned).
+	a.selectedNode = "node-deps"
+	m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	a = m.(App)
+	if a.filterInput.Value() != "" {
+		t.Errorf("pinning should clear the filter, got %q", a.filterInput.Value())
+	}
+	fs := a.focusSet()
+	if !fs["go-deps"] || !fs["node-deps"] {
+		t.Errorf("both pins should be visible after adding from the finder: %v", fs)
 	}
 }
 
@@ -283,7 +363,7 @@ func TestPinsAccumulateAndEscPopsLast(t *testing.T) {
 	}
 
 	esc() // pops only the last pin
-	if len(a.pins) != 1 || a.pins[0] != first {
+	if len(a.pins) != 1 || a.pins[0].key != first {
 		t.Fatalf("esc should pop the last pin, leaving [%s], got %v", first, a.pins)
 	}
 	esc() // pops the remaining pin

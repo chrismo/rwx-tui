@@ -6,26 +6,34 @@ import (
 	"github.com/chrismo/crux/internal/graph"
 )
 
-// computeVisible returns the set of node keys that survive the active
-// filter/focus overlays, or nil when nothing is active (meaning "show all").
-// Filter is a case-insensitive substring on the key; Focus (when non-nil)
-// constrains to its cone. Both apply together.
+// computeVisible returns the set of node keys to show, or nil when nothing is
+// active (meaning "show all").
+//
+// An active filter is a global finder: it searches the whole graph by
+// case-insensitive substring, overriding any pins. This lets you type to locate
+// the next node to pin even if it's outside the current pin view. With no
+// filter, the pin cone (ov.Focus, the intersection of pinned anchors' cones) is
+// what's shown. Pinning clears the filter (see the pin key handler), so pinning
+// snaps back from the finder to the pin view.
 func computeVisible(g *graph.Graph, ov graphOverlay) map[string]bool {
-	if ov.Focus == nil && ov.Filter == "" {
-		return nil
-	}
-	filter := strings.ToLower(ov.Filter)
-	vis := make(map[string]bool)
-	for _, n := range g.Nodes {
-		if ov.Focus != nil && !ov.Focus[n.Key] {
-			continue
+	if ov.Filter != "" {
+		filter := strings.ToLower(ov.Filter)
+		vis := make(map[string]bool)
+		for _, n := range g.Nodes {
+			if strings.Contains(strings.ToLower(n.Key), filter) {
+				vis[n.Key] = true
+			}
 		}
-		if filter != "" && !strings.Contains(strings.ToLower(n.Key), filter) {
-			continue
-		}
-		vis[n.Key] = true
+		return vis
 	}
-	return vis
+	if ov.Focus != nil {
+		vis := make(map[string]bool, len(ov.Focus))
+		for k := range ov.Focus {
+			vis[k] = true
+		}
+		return vis
+	}
+	return nil
 }
 
 // collapseGraph builds a graph over only the visible nodes, preserving reach/

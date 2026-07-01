@@ -195,7 +195,7 @@ type App struct {
 	layout       *graph.LayoutData
 	selectedNode string    // key of the highlighted graph node
 	xOffset      int       // horizontal pan offset for the graph viewport
-	pins         []string  // pinned anchor nodes (LIFO); their focus cones union
+	pins         []pin     // pinned anchors (LIFO); cones combine per pin.refine
 	filtering    bool      // the / filter input is active
 	filterInput  textinput.Model
 	logsLoading  bool   // logs fetch in flight for the open detail pane
@@ -274,18 +274,44 @@ func (a *App) currentOverlay() graphOverlay {
 	}
 }
 
-// focusSet is the union of the focus cones of all pinned anchors (nil when
-// nothing is pinned, meaning "no focus constraint"). Accumulating pins widens
-// the visible set to cover several subgraphs at once.
+// pin is a pinned anchor node. refine records how its cone combines with the
+// pins before it: true = intersect (the node was already visible, so it narrows
+// the view — the nested "hide the siblings" case), false = union (the node was
+// brought in from elsewhere via the global filter, so it adds a second area).
+// The first pin's refine is unused (it's the base).
+type pin struct {
+	key    string
+	refine bool
+}
+
+// focusSet combines the pinned anchors' cones per each pin's refine flag (nil
+// when nothing is pinned). Replaying the recorded ops keeps the result stable
+// across renders and correct after an esc pop. The anchors themselves are
+// always kept visible so a pin never vanishes.
 func (a *App) focusSet() map[string]bool {
 	if len(a.pins) == 0 || a.graph == nil {
 		return nil
 	}
 	set := make(map[string]bool)
-	for _, p := range a.pins {
-		for k := range graph.Focus(a.graph, p) {
-			set[k] = true
+	for k := range graph.Focus(a.graph, a.pins[0].key) {
+		set[k] = true
+	}
+	for _, p := range a.pins[1:] {
+		cone := graph.Focus(a.graph, p.key)
+		if p.refine {
+			for k := range set {
+				if !cone[k] {
+					delete(set, k)
+				}
+			}
+		} else {
+			for k := range cone {
+				set[k] = true
+			}
 		}
+	}
+	for _, p := range a.pins { // anchors always stay visible
+		set[p.key] = true
 	}
 	return set
 }
@@ -297,23 +323,27 @@ func (a *App) pinnedSet() map[string]bool {
 	}
 	m := make(map[string]bool, len(a.pins))
 	for _, p := range a.pins {
-		m[p] = true
+		m[p.key] = true
 	}
 	return m
 }
 
-// togglePin adds or removes a node from the pin stack.
+// togglePin adds or removes a node from the pin stack. A newly-pinned node
+// refines (intersects) when it's already inside the current pin view, and adds
+// (unions) when it isn't — e.g. a node located via the global filter from
+// outside the current view.
 func (a *App) togglePin(key string) {
 	if key == "" {
 		return
 	}
 	for i, p := range a.pins {
-		if p == key {
+		if p.key == key {
 			a.pins = append(a.pins[:i], a.pins[i+1:]...)
 			return
 		}
 	}
-	a.pins = append(a.pins, key)
+	refine := a.focusSet()[key] // already visible in the pin view → narrow it
+	a.pins = append(a.pins, pin{key: key, refine: refine})
 }
 
 // popPin removes the most recently added pin. Reports whether one was removed.
@@ -766,12 +796,13 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(k, a.keys.Back):
 			// esc backs out of the current visual state without leaving the grid:
-			// pop the last pin, else clear an active filter, else do nothing.
+			// clear an active filter first (it's the finder overlaying the pin
+			// view), then pop the last pin, else do nothing.
 			switch {
-			case a.popPin():
-				a.clampSelectionToVisible()
 			case a.filterInput.Value() != "":
 				a.filterInput.SetValue("")
+				a.clampSelectionToVisible()
+			case a.popPin():
 				a.clampSelectionToVisible()
 			}
 		case key.Matches(k, a.keys.ToList):
@@ -800,6 +831,7 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, textinput.Blink
 		case key.Matches(k, a.keys.Pin):
 			a.togglePin(a.selectedNode)
+			a.filterInput.SetValue("") // pinning snaps back from the finder to the pin view
 			a.clampSelectionToVisible()
 		}
 	}
