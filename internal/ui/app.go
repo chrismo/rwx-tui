@@ -31,15 +31,20 @@ type Model struct {
 }
 
 // NewModel builds the headless graph view from a fetched run, pre-pinning any
-// substring terms (nil/empty = the full graph).
-func NewModel(run rwx.Run, pinTerms []string) Model {
+// substring terms and applying a graph filter (all empty = the full graph). As
+// in the interactive view, a filter is a global finder that overrides the pins.
+func NewModel(run rwx.Run, pinTerms []string, filter string) Model {
 	g := graph.Build(run)
 	pins := pinListFor(g, pinTerms)
 	return Model{
-		run:     run,
-		graph:   g,
-		layout:  graph.Layout(g),
-		overlay: graphOverlay{Focus: focusSetOf(g, pins), Pinned: pinnedSetOf(pins)},
+		run:    run,
+		graph:  g,
+		layout: graph.Layout(g),
+		overlay: graphOverlay{
+			Focus:  focusSetOf(g, pins),
+			Pinned: pinnedSetOf(pins),
+			Filter: filter,
+		},
 	}
 }
 
@@ -170,9 +175,10 @@ const (
 
 // AppConfig configures the root App.
 type AppConfig struct {
-	Run    string         // open this run directly, skipping the list
-	Filter rwx.ListFilter // filter for the run list
-	Pins   []string       // substring terms to pre-pin on the first run opened
+	Run         string         // open this run directly, skipping the list
+	Filter      rwx.ListFilter // filter for the run list
+	Pins        []string       // substring terms to pre-pin on the first run opened
+	GraphFilter string         // initial graph node filter (type-to-filter seed)
 }
 
 // App is the root Bubble Tea model. It starts on the run list (the home) and
@@ -222,6 +228,7 @@ func NewApp(client *rwx.Client, cfg AppConfig) App {
 	ti := textinput.New()
 	ti.Prompt = "filter: "
 	ti.CharLimit = 64
+	ti.SetValue(cfg.GraphFilter) // optional --filter seed
 	return App{
 		filterInput: ti,
 		client:   client,

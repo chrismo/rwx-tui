@@ -30,6 +30,7 @@ type options struct {
 	run        string // explicit run ID to open
 	dir        string // checkout dir for the static-YAML fallback (default: cwd)
 	pin        string // comma-separated substring terms to pre-pin in the graph
+	filter     string // substring to filter graph nodes (global finder)
 	print      bool   // render once to stdout and exit (no interactive TUI)
 	version    bool   // print version and exit
 }
@@ -42,6 +43,7 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.run, "run", "", "explicit run ID to open")
 	fs.StringVar(&o.dir, "dir", ".", "checkout directory for the static-YAML fallback")
 	fs.StringVar(&o.pin, "pin", "", "comma-separated substring terms to pre-pin (e.g. --pin api,deploy)")
+	fs.StringVar(&o.filter, "filter", "", "filter graph nodes by substring (e.g. --filter build)")
 	fs.BoolVar(&o.print, "print", false, "render once to stdout and exit (no interactive TUI)")
 	fs.BoolVar(&o.version, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
@@ -92,7 +94,7 @@ func run(opts options) error {
 		return printOnce(client, opts, filter)
 	}
 
-	app := ui.NewApp(client, ui.AppConfig{Run: opts.run, Filter: filter, Pins: splitPins(opts.pin)})
+	app := ui.NewApp(client, ui.AppConfig{Run: opts.run, Filter: filter, Pins: splitPins(opts.pin), GraphFilter: opts.filter})
 	_, err := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
@@ -104,7 +106,7 @@ func printOnce(client *rwx.Client, opts options, filter rwx.ListFilter) error {
 		if err != nil {
 			return err
 		}
-		fmt.Print(ui.NewModel(r, splitPins(opts.pin)).View())
+		fmt.Print(ui.NewModel(r, splitPins(opts.pin), opts.filter).View())
 		return nil
 	}
 	rl, err := client.ListRuns(ctx, filter)

@@ -1,0 +1,10 @@
+RWX run a161505b · .rwx/sample-dag.yml · failed
+critical path: node-toolchain → node-deps → build-web → unit-web → coverage · 12s
+failed: go-deps · blast radius: build-api, build-cli, build-worker, contract-tests, coverage, e2e, integration, lint-go, notify, package, publish, security-scan, unit-api, unit-cli, unit-worker
+filter: build  (4 of 31 shown)
+
+╭───────────────╮   ╭───────────────╮   ┏━━━━━━━━━━━━━━━━━━━┓   ╭──────────────────╮
+│ ⊘ build-api ↯ │   │ ⊘ build-cli ↯ │   ┃ ⚡ build-web (3s) ┃   │ ⊘ build-worker ↯ │
+╰───────────────╯   ╰───────────────╯   ┗━━━━━━━━━━━━━━━━━━━┛   ╰──────────────────╯
+
+✓ ran   ⚡ cache-hit   ● running   ○ waiting   ✗ failed   ⊘ skipped   · pending

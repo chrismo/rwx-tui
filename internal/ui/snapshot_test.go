@@ -110,13 +110,19 @@ func TestSnapshotSampleDagPinned(t *testing.T) {
 // the full graph and a multi-match --pin term.
 func TestSnapshotPrintFull(t *testing.T) {
 	run := loadRun(t, "sample_dag_failed.json")
-	snapshotCheck(t, "print_full.txt", NewModel(run, nil).View())
+	snapshotCheck(t, "print_full.txt", NewModel(run, nil, "").View())
 }
 
 func TestSnapshotPrintPinnedDeps(t *testing.T) {
 	run := loadRun(t, "sample_dag_failed.json")
 	// "deps" matches go-deps, node-deps, py-deps — three pins, three 📌 markers.
-	snapshotCheck(t, "print_pin_deps.txt", NewModel(run, []string{"deps"}).View())
+	snapshotCheck(t, "print_pin_deps.txt", NewModel(run, []string{"deps"}, "").View())
+}
+
+func TestSnapshotPrintFiltered(t *testing.T) {
+	run := loadRun(t, "sample_dag_failed.json")
+	// --filter is a global finder: only nodes matching "build" survive.
+	snapshotCheck(t, "print_filter_build.txt", NewModel(run, nil, "build").View())
 }
 
 func TestSnapshotHome(t *testing.T) {
