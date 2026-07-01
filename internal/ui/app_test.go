@@ -268,7 +268,7 @@ func TestPinsIntersect(t *testing.T) {
 	a := &App{graph: g, layout: graph.Layout(g), filterInput: textinput.New()}
 
 	// integration has three parents: build-api, build-worker, build-web.
-	a.togglePin("integration", "")
+	a.togglePin("integration")
 	fs := a.focusSet()
 	for _, p := range []string{"build-api", "build-worker", "build-web"} {
 		if !fs[p] {
@@ -278,7 +278,7 @@ func TestPinsIntersect(t *testing.T) {
 
 	// build-api is already visible, so pinning it refines (intersects) — the
 	// sibling parents drop out.
-	a.togglePin("build-api", "")
+	a.togglePin("build-api")
 	if len(a.pins) != 2 || a.pins[1].refine != true {
 		t.Fatalf("second pin of a visible node should refine: %+v", a.pins)
 	}
@@ -298,11 +298,11 @@ func TestPinsUnionWhenAddedFromElsewhere(t *testing.T) {
 	g := graph.Build(run)
 	a := &App{graph: g, layout: graph.Layout(g), filterInput: textinput.New()}
 
-	a.togglePin("go-deps", "") // Go branch
+	a.togglePin("go-deps") // Go branch
 	if a.focusSet()["node-deps"] {
 		t.Fatal("precondition: node-deps should be outside go-deps' cone")
 	}
-	a.togglePin("node-deps", "") // outside the current view → union (add)
+	a.togglePin("node-deps") // outside the current view → union (add)
 	if len(a.pins) != 2 || a.pins[1].refine != false {
 		t.Fatalf("pinning a node outside the view should add (union): %+v", a.pins)
 	}
@@ -316,7 +316,7 @@ func TestPinsUnionWhenAddedFromElsewhere(t *testing.T) {
 // overriding the pin view, and pinning clears it (snapping back to the pins).
 func TestFilterFindsOutsidePinsThenPinClearsIt(t *testing.T) {
 	a := openGraph(t, "sample_dag_failed.json")
-	a.togglePin("go-deps", "") // pin the Go branch
+	a.togglePin("go-deps") // pin the Go branch
 
 	// node-deps is outside go-deps' cone; the global filter still finds it.
 	a.filterInput.SetValue("node-deps")
@@ -398,75 +398,92 @@ func TestSeedPinsFromConfig(t *testing.T) {
 	}
 }
 
-// Pinning while filtered stashes the filter; unpinning the same node restores
-// it, so space-to-pin then space-to-undo returns to the filtered view.
-func TestPinThenUnpinRestoresFilter(t *testing.T) {
-	a := openGraph(t, "sample_dag_failed.json")
-	press := func(s string) {
-		m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
-		a = m.(App)
-	}
-	space := func() {
-		m, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
-		a = m.(App)
-	}
+func pressRunes(a *App, s string) {
+	m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+	*a = m.(App)
+}
 
-	press("build")
+func sendType(a *App, kt tea.KeyType) {
+	m, _ := a.Update(tea.KeyMsg{Type: kt})
+	*a = m.(App)
+}
+
+// esc undoes the last focus action via the history stack: pinning from a filter,
+// then esc, pops the pre-pin snapshot — restoring the filter and dropping the pin.
+func TestEscUndoesPinAndRestoresFilter(t *testing.T) {
+	a := openGraph(t, "sample_dag_failed.json")
+
+	pressRunes(&a, "build")
 	if a.filterInput.Value() != "build" {
 		t.Fatalf("filter = %q, want build", a.filterInput.Value())
 	}
 
-	space() // pin the selected build-* node; filter clears to the pin view
-	if len(a.pins) != 1 {
-		t.Fatalf("expected 1 pin, got %v", a.pins)
-	}
-	if a.filterInput.Value() != "" {
-		t.Errorf("pinning should clear the filter, got %q", a.filterInput.Value())
+	sendType(&a, tea.KeySpace) // pin; filter clears to the pin view
+	if len(a.pins) != 1 || a.filterInput.Value() != "" {
+		t.Fatalf("after pin: pins=%v filter=%q", a.pins, a.filterInput.Value())
 	}
 
-	space() // unpin the same node; the filter is restored
+	sendType(&a, tea.KeyEsc) // undo the pin
 	if len(a.pins) != 0 {
-		t.Fatalf("expected 0 pins after unpin, got %v", a.pins)
+		t.Fatalf("esc should undo the pin, pins=%v", a.pins)
 	}
 	if a.filterInput.Value() != "build" {
-		t.Errorf("unpin should restore the filter, got %q", a.filterInput.Value())
+		t.Errorf("esc should restore the filter, got %q", a.filterInput.Value())
 	}
 }
 
-// Unpinning one of several pins must NOT restore a stashed filter — doing so
-// would override the surviving pins (filter is a global finder). Only unpinning
-// the last pin restores the filter.
+// space is a pure toggle: unpinning one of several pins just removes it and
+// never resurrects a filter (that would override the surviving pins). Only esc
+// (history) brings filters back.
 func TestUnpinWithOtherPinsKeepsView(t *testing.T) {
 	a := openGraph(t, "sample_dag_failed.json")
-	press := func(s string) {
-		m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
-		a = m.(App)
-	}
-	space := func() {
-		m, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
-		a = m.(App)
-	}
 
-	press("web")     // filter to *-web nodes
+	pressRunes(&a, "web") // filter to *-web nodes
 	a.selectedNode = "lint-web"
-	space()          // pin lint-web (filter "web" stashed, view collapses)
+	sendType(&a, tea.KeySpace) // pin lint-web (filter clears)
 	a.selectedNode = "node-deps"
-	space()          // pin node-deps (a second pin)
+	sendType(&a, tea.KeySpace) // pin node-deps
 	if len(a.pins) != 2 {
 		t.Fatalf("expected 2 pins, got %v", a.pins)
 	}
 
-	// Unpin lint-web with node-deps still pinned: the filter must NOT come back.
+	// Unpin lint-web with node-deps still pinned: no filter must come back.
 	a.selectedNode = "lint-web"
-	space()
+	sendType(&a, tea.KeySpace)
 	if len(a.pins) != 1 || a.pins[0].key != "node-deps" {
 		t.Fatalf("expected only node-deps pinned, got %v", a.pins)
 	}
 	if a.filterInput.Value() != "" {
-		t.Errorf("unpinning with a pin remaining should not restore the filter, got %q", a.filterInput.Value())
+		t.Errorf("unpin must not resurrect a filter, got %q", a.filterInput.Value())
 	}
 	if vis := computeVisible(a.graph, a.currentOverlay()); !vis["node-deps"] {
 		t.Errorf("node-deps should still be visible in its pin view: %v", vis)
+	}
+}
+
+// esc with a live filter cancels the finder (not a history step); a second esc
+// then walks the focus history.
+func TestEscCancelsLiveFilterBeforeHistory(t *testing.T) {
+	a := openGraph(t, "sample_dag_failed.json")
+
+	a.selectedNode = "go-deps"
+	sendType(&a, tea.KeySpace) // pin go-deps (history has the pre-pin snapshot)
+	pressRunes(&a, "web")      // start a new finder search
+	if a.filterInput.Value() != "web" {
+		t.Fatalf("filter = %q, want web", a.filterInput.Value())
+	}
+
+	sendType(&a, tea.KeyEsc) // cancels the live filter, leaves the pin
+	if a.filterInput.Value() != "" {
+		t.Errorf("first esc should clear the live filter, got %q", a.filterInput.Value())
+	}
+	if len(a.pins) != 1 {
+		t.Fatalf("first esc should not touch pins, got %v", a.pins)
+	}
+
+	sendType(&a, tea.KeyEsc) // now pops history: undoes the pin
+	if len(a.pins) != 0 {
+		t.Errorf("second esc should undo the pin, got %v", a.pins)
 	}
 }
 

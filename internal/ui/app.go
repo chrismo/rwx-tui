@@ -210,8 +210,9 @@ type App struct {
 	layout       *graph.LayoutData
 	selectedNode string    // key of the highlighted graph node
 	xOffset      int       // horizontal pan offset for the graph viewport
-	pins         []pin     // pinned anchors (LIFO); cones combine per pin.refine
+	pins         []pin     // pinned anchors (a set); cones combine per pin.refine
 	pinsSeeded   bool      // AppConfig.Pins have been applied (one-time, first run)
+	history      []viewState // focus back-stack: esc pops one snapshot
 	filterInput  textinput.Model // stores the live graph filter string (type-to-filter)
 	logsLoading  bool   // logs fetch in flight for the open detail pane
 	detailOpen   bool   // detail pane shown for the selected node
@@ -294,14 +295,48 @@ func (a *App) currentOverlay() graphOverlay {
 // pins before it: true = intersect (the node was already visible, so it narrows
 // the view — the nested "hide the siblings" case), false = union (the node was
 // brought in from elsewhere via the global filter, so it adds a second area).
-// The first pin's refine is unused (it's the base). stashedFilter is the filter
-// that was active when this pin was made (cleared on pin); it's restored only
-// when unpinning empties the stack, so pin-then-unpin is a true undo without
-// clobbering other pins that are still up.
+// The first pin's refine is unused (it's the base).
 type pin struct {
-	key           string
-	refine        bool
-	stashedFilter string
+	key    string
+	refine bool
+}
+
+// viewState is a snapshot of the graph focus: the filter, the pin set, and the
+// cursor. Every focus mutation pushes the prior state; esc pops one. This is the
+// whole "undo" mechanism — pins stay a plain set you edit forward, and history
+// is the stack you walk backward, so the two never entangle.
+type viewState struct {
+	filter   string
+	pins     []pin
+	selected string
+}
+
+// maxHistory caps the back-stack; older snapshots are dropped.
+const maxHistory = 50
+
+// pushHistory records the current focus state before a mutation.
+func (a *App) pushHistory() {
+	a.history = append(a.history, viewState{
+		filter:   a.filterInput.Value(),
+		pins:     append([]pin(nil), a.pins...),
+		selected: a.selectedNode,
+	})
+	if len(a.history) > maxHistory {
+		a.history = a.history[len(a.history)-maxHistory:]
+	}
+}
+
+// popHistory restores the most recent snapshot. Reports whether one existed.
+func (a *App) popHistory() bool {
+	if len(a.history) == 0 {
+		return false
+	}
+	s := a.history[len(a.history)-1]
+	a.history = a.history[:len(a.history)-1]
+	a.filterInput.SetValue(s.filter)
+	a.pins = s.pins
+	a.selectedNode = s.selected
+	return true
 }
 
 // focusSetOf combines pinned anchors' cones per each pin's refine flag (nil when
@@ -381,29 +416,20 @@ func pinListFor(g *graph.Graph, terms []string) []pin {
 func (a *App) focusSet() map[string]bool  { return focusSetOf(a.graph, a.pins) }
 func (a *App) pinnedSet() map[string]bool { return pinnedSetOf(a.pins) }
 
-// togglePin adds or removes a node from the pin stack and returns the filter to
-// display afterwards (the caller applies it). Adding stashes the current filter
-// on the pin and returns "" — the filter clears to snap to the pin view. Removing
-// the LAST pin restores that pin's stashed filter, so pin-then-unpin is a true
-// undo back to the filtered view; removing a pin while others remain keeps the
-// current view (curFilter) so it can't override the surviving pins. A newly-
-// pinned node refines (intersects) when already inside the pin view, else adds.
-func (a *App) togglePin(key, curFilter string) (newFilter string) {
+// togglePin adds or removes a node from the pin set — a pure forward edit; back-
+// out is handled by history (esc), not here. A newly-pinned node refines
+// (intersects) when it's already inside the pin view and adds (unions) otherwise.
+func (a *App) togglePin(key string) {
 	if key == "" {
-		return curFilter
+		return
 	}
 	for i, p := range a.pins {
 		if p.key == key {
-			stashed := p.stashedFilter
 			a.pins = append(a.pins[:i], a.pins[i+1:]...)
-			if len(a.pins) == 0 {
-				return stashed // undo back to the filter you started from
-			}
-			return curFilter // other pins remain: don't disturb their view
+			return
 		}
 	}
-	a.pins = append(a.pins, pin{key: key, refine: a.focusSet()[key], stashedFilter: curFilter})
-	return ""
+	a.pins = append(a.pins, pin{key: key, refine: a.focusSet()[key]})
 }
 
 // seedPins applies AppConfig.Pins once, when the first run opens. Each term is a
@@ -417,15 +443,6 @@ func (a *App) seedPins() {
 	a.pinsSeeded = true
 	a.pins = append(a.pins, pinListFor(a.graph, a.cfg.Pins)...)
 	a.clampSelectionToVisible()
-}
-
-// popPin removes the most recently added pin. Reports whether one was removed.
-func (a *App) popPin() bool {
-	if len(a.pins) == 0 {
-		return false
-	}
-	a.pins = a.pins[:len(a.pins)-1]
-	return true
 }
 
 // activeLayout is the layout the graph is currently drawn with: the collapsed
@@ -866,19 +883,21 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.logsLoading = false
 			}
 		case tea.KeySpace:
-			// Pin snaps back from the finder to the pin view (filter cleared);
-			// unpin restores the filter that was active when the node was pinned.
-			restore := a.togglePin(a.selectedNode, a.filterInput.Value())
-			a.filterInput.SetValue(restore)
+			// Toggle a pin (a forward focus edit). Snapshot first so esc can undo
+			// it, then clear the finder filter to commit to the pin view.
+			a.pushHistory()
+			a.togglePin(a.selectedNode)
+			a.filterInput.SetValue("")
 			a.clampSelectionToVisible()
 		case tea.KeyEsc:
-			// Back out of the current visual state without leaving the grid:
-			// clear the finder filter first, then pop the last pin, else nothing.
+			// One uniform back-out: cancel the live finder if one's being typed,
+			// otherwise pop the focus history (undo the last pin/unpin, restoring
+			// its filter + cursor). Never leaves the grid.
 			switch {
 			case a.filterInput.Value() != "":
 				a.filterInput.SetValue("")
 				a.clampSelectionToVisible()
-			case a.popPin():
+			case a.popHistory():
 				a.clampSelectionToVisible()
 			}
 		case tea.KeyBackspace:
