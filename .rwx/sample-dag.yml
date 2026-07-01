@@ -1,0 +1,156 @@
+# A richly-connected mock DAG for developing crux's graph view locally.
+#
+# Every task is a fake step (echo + a short sleep) so the whole run finishes in
+# well under a minute. The topology is the point: multiple roots, fan-out,
+# diamonds, deep fan-in, cross-branch edges, and a long critical path.
+#
+#   rwx run .rwx/sample-dag.yml --wait                  # all green
+#   rwx run .rwx/sample-dag.yml --wait --init chaos=true # go-deps fails,
+#                                                        # cascading a big
+#                                                        # cluster of skipped
+#                                                        # (gray) nodes
+#
+# `chaos=true` fails `go-deps` early, so the entire Go-side subgraph goes
+# skipped while the JS/Python side stays green — a realistic mostly-gray graph
+# for exercising isolate/filter/pathing.
+on:
+  cli:
+    init:
+      chaos: "false"
+
+base:
+  image: ubuntu:24.04
+  config: rwx/base 1.1.1
+
+tasks:
+  # --- roots (no dependencies) -------------------------------------------
+  - key: checkout
+    run: echo "[checkout] fetching source"; sleep 1
+
+  - key: sys-packages
+    run: echo "[sys-packages] apt install jq protobuf"; sleep 2
+
+  - key: go-toolchain
+    run: echo "[go-toolchain] install go 1.26"; sleep 2
+
+  - key: node-toolchain
+    run: echo "[node-toolchain] install node 20"; sleep 2
+
+  - key: python-toolchain
+    run: echo "[python-toolchain] install python 3.12"; sleep 1
+
+  # --- dependency resolution ---------------------------------------------
+  - key: go-deps
+    use: [checkout, go-toolchain]
+    run: |
+      echo "[go-deps] go mod download"
+      if [ "${{ init.chaos }}" = "true" ]; then
+        echo "go: module resolution failed (injected chaos)" >&2
+        exit 1
+      fi
+      sleep 2
+
+  - key: node-deps
+    use: [checkout, node-toolchain]
+    run: echo "[node-deps] npm ci"; sleep 2
+
+  - key: py-deps
+    use: [checkout, python-toolchain]
+    run: echo "[py-deps] pip install -r requirements.txt"; sleep 1
+
+  - key: proto-gen
+    use: [checkout, sys-packages]
+    run: echo "[proto-gen] protoc --gen"; sleep 2
+
+  # --- builds (diamonds off deps + proto) --------------------------------
+  - key: build-api
+    use: [go-deps, proto-gen]
+    run: echo "[build-api] go build ./cmd/api"; sleep 3
+
+  - key: build-worker
+    use: [go-deps]
+    run: echo "[build-worker] go build ./cmd/worker"; sleep 2
+
+  - key: build-cli
+    use: [go-deps]
+    run: echo "[build-cli] go build ./cmd/cli"; sleep 1
+
+  - key: build-web
+    use: [node-deps, proto-gen]
+    run: echo "[build-web] vite build"; sleep 2
+
+  # --- linters (shallow side branches) -----------------------------------
+  - key: lint-go
+    use: [go-deps]
+    run: echo "[lint-go] golangci-lint run"; sleep 1
+
+  - key: lint-web
+    use: [node-deps]
+    run: echo "[lint-web] eslint ."; sleep 1
+
+  - key: lint-py
+    use: [py-deps]
+    run: echo "[lint-py] ruff check"; sleep 1
+
+  # --- unit tests --------------------------------------------------------
+  - key: unit-api
+    use: [build-api]
+    run: echo "[unit-api] go test ./api/..."; sleep 2
+
+  - key: unit-worker
+    use: [build-worker]
+    run: echo "[unit-worker] go test ./worker/..."; sleep 1
+
+  - key: unit-cli
+    use: [build-cli]
+    run: echo "[unit-cli] go test ./cli/..."; sleep 1
+
+  - key: unit-web
+    use: [build-web]
+    run: echo "[unit-web] vitest run"; sleep 2
+
+  # --- integration / contract (fan-in across builds) ---------------------
+  - key: integration
+    use: [build-api, build-worker, build-web]
+    run: echo "[integration] docker-compose up + test"; sleep 3
+
+  - key: contract-tests
+    use: [build-api, build-web]
+    run: echo "[contract-tests] pact verify"; sleep 2
+
+  # --- higher-order gates ------------------------------------------------
+  - key: e2e
+    use: [integration, build-web]
+    run: echo "[e2e] playwright test"; sleep 3
+
+  - key: coverage
+    use: [unit-api, unit-worker, unit-cli, unit-web]
+    run: echo "[coverage] merge + report"; sleep 2
+
+  - key: security-scan
+    use: [build-api, build-worker, build-cli]
+    run: echo "[security-scan] trivy fs ."; sleep 2
+
+  - key: docs
+    use: [build-web]
+    run: echo "[docs] build docs site"; sleep 1
+
+  # --- deep fan-in -------------------------------------------------------
+  - key: package
+    use:
+      - e2e
+      - coverage
+      - security-scan
+      - contract-tests
+      - lint-go
+      - lint-web
+      - lint-py
+    run: echo "[package] assemble release bundle"; sleep 2
+
+  - key: publish
+    use: [package]
+    run: echo "[publish] push artifacts"; sleep 2
+
+  - key: notify
+    use: [publish, docs]
+    run: echo "[notify] post to slack"; sleep 1
