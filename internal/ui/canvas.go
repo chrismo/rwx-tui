@@ -13,7 +13,7 @@ import (
 // could not draw edges.
 //
 // Cells carry an optional foreground color plus bold/reverse so the live TUI
-// keeps its state coloring; under the Ascii color profile (the golden/--print
+// keeps its state coloring; under the Ascii color profile (the snapshot/--print
 // surface) the styling collapses to plain text, keeping output deterministic.
 type canvas struct {
 	w, h  int

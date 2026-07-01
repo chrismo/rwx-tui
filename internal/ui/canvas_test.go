@@ -2,7 +2,7 @@ package ui
 
 import "testing"
 
-// Canvas tests run under the Ascii color profile (TestMain in golden_test.go),
+// Canvas tests run under the Ascii color profile (TestMain in snapshot_test.go),
 // so styling collapses to plain text and String output is the raw grid.
 
 func TestCanvasTextAndTrim(t *testing.T) {

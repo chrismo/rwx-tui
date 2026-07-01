@@ -30,7 +30,7 @@ Three concrete defects, all in the rendering/interaction layer (the graph
 `Edges` (`build.go`, parses `use:` from RawDefinition, all three YAML forms),
 critical path (`critpath.go`), failure blast radius (`failure.go`), focus cone
 (`focus.go`). All fixture-tested. The `--print` body-parity invariant
-(`Screen`/`RenderGraph` back both TUI and headless, guarded by goldens forcing
+(`Screen`/`RenderGraph` back both TUI and headless, guarded by snapshots forcing
 `termenv.Ascii`) must be preserved.
 
 ## Foundation change
@@ -51,7 +51,7 @@ nothing fits). No changes to `internal/graph`.
   route through the inter-layer gap as a channel — v1 tolerates occasional
   crossings rather than a full orthogonal router.
 - `width` param on `Screen`/`RenderGraph`.
-- Regenerate goldens; a golden from `sample_dag_failed.json` contains visible
+- Regenerate snapshots; a snapshot from `sample_dag_failed.json` contains visible
   connector runes joining e.g. `go-deps`→`build-api`.
 - **Fixes problem 2.**
 
@@ -63,7 +63,7 @@ nothing fits). No changes to `internal/graph`.
   relationships survive the collapse.
 - Header shows `filter: X  (n of N shown)` + hidden count.
 - Filtered-out nodes render visually distinct from skipped/gray.
-- Golden with an active filter shows only matches (hidden absent) with
+- Snapshot with an active filter shows only matches (hidden absent) with
   path-preserving connectors.
 - **Fixes problems 1 (collapse is the primary fit) and 3.**
 
@@ -84,15 +84,15 @@ TDD against frozen fixtures — no network:
 - `internal/rwx/testdata/sample_dag_failed.json` (`chaos=true`: 15 green /
   1 failed / 15 skipped — the mostly-gray acceptance case)
 
-Each phase re-freezes goldens at fixed widths. Note: Phase 2's collapse changes
-the frame, so it will rewrite Phase 1's golden — expected.
+Each phase re-freezes snapshots at fixed widths. Note: Phase 2's collapse changes
+the frame, so it will rewrite Phase 1's snapshot — expected.
 
 Run tests with the repo's GOPROXY workaround:
 `GOPROXY=https://proxy.golang.org,direct ./build.sh test`
 
 ## Done criteria
 
-`./build.sh test` fully green with goldens/tests demonstrating all three:
+`./build.sh test` fully green with snapshots/tests demonstrating all three:
 connectors drawn, filter/focus collapses with path preservation, selection
 moves among visible nodes only. `internal/graph` unchanged; no weakened or
 skipped tests.
