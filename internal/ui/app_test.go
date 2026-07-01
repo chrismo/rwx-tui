@@ -268,7 +268,7 @@ func TestPinsIntersect(t *testing.T) {
 	a := &App{graph: g, layout: graph.Layout(g), filterInput: textinput.New()}
 
 	// integration has three parents: build-api, build-worker, build-web.
-	a.togglePin("integration")
+	a.togglePin("integration", "")
 	fs := a.focusSet()
 	for _, p := range []string{"build-api", "build-worker", "build-web"} {
 		if !fs[p] {
@@ -278,7 +278,7 @@ func TestPinsIntersect(t *testing.T) {
 
 	// build-api is already visible, so pinning it refines (intersects) — the
 	// sibling parents drop out.
-	a.togglePin("build-api")
+	a.togglePin("build-api", "")
 	if len(a.pins) != 2 || a.pins[1].refine != true {
 		t.Fatalf("second pin of a visible node should refine: %+v", a.pins)
 	}
@@ -298,11 +298,11 @@ func TestPinsUnionWhenAddedFromElsewhere(t *testing.T) {
 	g := graph.Build(run)
 	a := &App{graph: g, layout: graph.Layout(g), filterInput: textinput.New()}
 
-	a.togglePin("go-deps") // Go branch
+	a.togglePin("go-deps", "") // Go branch
 	if a.focusSet()["node-deps"] {
 		t.Fatal("precondition: node-deps should be outside go-deps' cone")
 	}
-	a.togglePin("node-deps") // outside the current view → union (add)
+	a.togglePin("node-deps", "") // outside the current view → union (add)
 	if len(a.pins) != 2 || a.pins[1].refine != false {
 		t.Fatalf("pinning a node outside the view should add (union): %+v", a.pins)
 	}
@@ -316,7 +316,7 @@ func TestPinsUnionWhenAddedFromElsewhere(t *testing.T) {
 // overriding the pin view, and pinning clears it (snapping back to the pins).
 func TestFilterFindsOutsidePinsThenPinClearsIt(t *testing.T) {
 	a := openGraph(t, "sample_dag_failed.json")
-	a.togglePin("go-deps") // pin the Go branch
+	a.togglePin("go-deps", "") // pin the Go branch
 
 	// node-deps is outside go-deps' cone; the global filter still finds it.
 	a.filterInput.SetValue("node-deps")
@@ -395,6 +395,41 @@ func TestSeedPinsFromConfig(t *testing.T) {
 	}
 	if !a.pinsSeeded {
 		t.Error("pinsSeeded should be set after the first run open")
+	}
+}
+
+// Pinning while filtered stashes the filter; unpinning the same node restores
+// it, so space-to-pin then space-to-undo returns to the filtered view.
+func TestPinThenUnpinRestoresFilter(t *testing.T) {
+	a := openGraph(t, "sample_dag_failed.json")
+	press := func(s string) {
+		m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+		a = m.(App)
+	}
+	space := func() {
+		m, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
+		a = m.(App)
+	}
+
+	press("build")
+	if a.filterInput.Value() != "build" {
+		t.Fatalf("filter = %q, want build", a.filterInput.Value())
+	}
+
+	space() // pin the selected build-* node; filter clears to the pin view
+	if len(a.pins) != 1 {
+		t.Fatalf("expected 1 pin, got %v", a.pins)
+	}
+	if a.filterInput.Value() != "" {
+		t.Errorf("pinning should clear the filter, got %q", a.filterInput.Value())
+	}
+
+	space() // unpin the same node; the filter is restored
+	if len(a.pins) != 0 {
+		t.Fatalf("expected 0 pins after unpin, got %v", a.pins)
+	}
+	if a.filterInput.Value() != "build" {
+		t.Errorf("unpin should restore the filter, got %q", a.filterInput.Value())
 	}
 }
 

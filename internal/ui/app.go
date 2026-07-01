@@ -294,10 +294,13 @@ func (a *App) currentOverlay() graphOverlay {
 // pins before it: true = intersect (the node was already visible, so it narrows
 // the view — the nested "hide the siblings" case), false = union (the node was
 // brought in from elsewhere via the global filter, so it adds a second area).
-// The first pin's refine is unused (it's the base).
+// The first pin's refine is unused (it's the base). stashedFilter is the filter
+// that was active when this pin was made (cleared on pin); unpinning restores it
+// so pin-then-unpin is a true undo back to the filtered view.
 type pin struct {
-	key    string
-	refine bool
+	key           string
+	refine        bool
+	stashedFilter string
 }
 
 // focusSetOf combines pinned anchors' cones per each pin's refine flag (nil when
@@ -377,21 +380,25 @@ func pinListFor(g *graph.Graph, terms []string) []pin {
 func (a *App) focusSet() map[string]bool  { return focusSetOf(a.graph, a.pins) }
 func (a *App) pinnedSet() map[string]bool { return pinnedSetOf(a.pins) }
 
-// togglePin adds or removes a node from the pin stack. A newly-pinned node
-// refines (intersects) when it's already inside the current pin view, and adds
-// (unions) when it isn't — e.g. a node located via the global filter from
-// outside the current view.
-func (a *App) togglePin(key string) {
+// togglePin adds or removes a node from the pin stack and returns the filter to
+// display afterwards. Adding stashes the current filter (passed in) on the pin
+// and returns "" — the caller clears the filter to snap to the pin view. Removing
+// returns the pin's stashed filter so unpinning restores the prior filtered view.
+// A newly-pinned node refines (intersects) when it's already inside the current
+// pin view, and adds (unions) when it isn't.
+func (a *App) togglePin(key, stash string) (restore string) {
 	if key == "" {
-		return
+		return ""
 	}
 	for i, p := range a.pins {
 		if p.key == key {
+			restore = p.stashedFilter
 			a.pins = append(a.pins[:i], a.pins[i+1:]...)
-			return
+			return restore
 		}
 	}
-	a.pins = append(a.pins, pin{key: key, refine: a.focusSet()[key]})
+	a.pins = append(a.pins, pin{key: key, refine: a.focusSet()[key], stashedFilter: stash})
+	return ""
 }
 
 // seedPins applies AppConfig.Pins once, when the first run opens. Each term is a
@@ -854,8 +861,10 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.logsLoading = false
 			}
 		case tea.KeySpace:
-			a.togglePin(a.selectedNode)
-			a.filterInput.SetValue("") // pinning snaps back from the finder to the pin view
+			// Pin snaps back from the finder to the pin view (filter cleared);
+			// unpin restores the filter that was active when the node was pinned.
+			restore := a.togglePin(a.selectedNode, a.filterInput.Value())
+			a.filterInput.SetValue(restore)
 			a.clampSelectionToVisible()
 		case tea.KeyEsc:
 			// Back out of the current visual state without leaving the grid:
