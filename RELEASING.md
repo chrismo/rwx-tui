@@ -1,40 +1,46 @@
 # Releasing crux
 
-Releases are cut by [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`) via
-the `release` GitHub Actions workflow, triggered by a `vX.Y.Z` tag. It builds
-darwin/linux × amd64/arm64 archives + checksums, publishes a GitHub Release, and
-commits the Homebrew cask to `chrismo/homebrew-crux`.
+Releases are cut **locally** with [GoReleaser](https://goreleaser.com)
+(`.goreleaser.yaml`) — no CI, no PAT. It cross-compiles darwin/linux ×
+amd64/arm64, publishes a GitHub Release on `chrismo/crux`, and commits the
+Homebrew cask to `chrismo/homebrew-crux`. GoReleaser authenticates with your
+local `gh` token (`gh auth token`), which has `repo` scope and can write both
+repos. (This mirrors how grdy releases: build locally, push the tap from your
+own machine.)
 
 Install target once released: `brew install chrismo/crux/crux`.
 
 ## One-time setup
 
-1. **Create the tap repo** `chrismo/homebrew-crux` on GitHub (public, empty),
-   then push the scaffold in `../homebrew-crux`:
-   ```sh
-   cd ../homebrew-crux
-   git remote add origin git@github.com:chrismo/homebrew-crux.git
-   git push -u origin main
-   ```
-2. **Add a PAT secret** so GoReleaser can push the cask cross-repo: create a
-   fine-grained token with **Contents: read/write** on `chrismo/homebrew-crux`,
-   then add it to *this* repo as the secret `HOMEBREW_TAP_GITHUB_TOKEN`
-   (`gh secret set HOMEBREW_TAP_GITHUB_TOKEN`).
+The tap repo `chrismo/homebrew-crux` already exists. Push the local scaffold once
+so it has its README (GoReleaser adds `Casks/crux.rb` on the first release):
+
+```sh
+cd ../homebrew-crux
+git remote add origin git@github.com:chrismo/homebrew-crux.git   # if not set
+git push -u origin main
+```
 
 ## Cut a release
 
 ```sh
-# validate + local dry run (no publish)
+# pre-flight: validate + full local build, no publish
 goreleaser check
-HOMEBREW_TAP_GITHUB_TOKEN=x goreleaser release --snapshot --clean
+goreleaser release --snapshot --clean
 
 # real release
 git tag v0.1.0
-git push origin v0.1.0        # the workflow does the rest
+git push origin v0.1.0
+GITHUB_TOKEN=$(gh auth token) goreleaser release --clean
 ```
+
+The last command publishes the GitHub Release and updates the tap. Then
+`brew install chrismo/crux/crux` (or `brew upgrade crux`).
 
 ## Notes
 
-- The GitHub Release is published on `chrismo/crux` (this repo).
 - macOS binaries are unsigned; the cask's postflight strips the Gatekeeper
   quarantine attribute so `crux` runs without a prompt.
+- To move releases to CI later: re-add a workflow and a cross-repo PAT
+  (`HOMEBREW_TAP_GITHUB_TOKEN`) as the cask `repository.token` in
+  `.goreleaser.yaml` — CI's default `GITHUB_TOKEN` can't push to another repo.

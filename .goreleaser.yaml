@@ -41,9 +41,9 @@ homebrew_casks:
     repository:
       owner: chrismo
       name: homebrew-crux
-      # A PAT with push access to chrismo/homebrew-crux (the default
-      # GITHUB_TOKEN can't push to another repo).
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      # No explicit token: released locally, so GoReleaser uses the default
+      # GITHUB_TOKEN — set to your gh token (repo scope), which can push to the
+      # tap. (A CI release would need a cross-repo PAT here instead.)
     homepage: "https://github.com/chrismo/crux"
     description: "Local TUI for monitoring RWX runs with a better Flow graph"
     # Strip the Gatekeeper quarantine xattr so the unsigned binary runs.
