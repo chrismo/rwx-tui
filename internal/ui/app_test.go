@@ -152,25 +152,25 @@ func TestGraphSelectionNav(t *testing.T) {
 	m, _ = a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	a = m.(App)
 
-	send := func(s string) {
-		m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+	send := func(kt tea.KeyType) {
+		m, _ := a.Update(tea.KeyMsg{Type: kt})
 		a = m.(App)
 	}
 
-	// Layout layer 0 (sorted) is [code, go, ~base-image]; layer 1 is
-	// [deps, ~base-config].
+	// Graph nav is arrow-key only (letters type into the filter). Layout layer 0
+	// (sorted) is [code, go, ~base-image]; layer 1 is [deps, ~base-config].
 	if a.selectedNode != "code" {
 		t.Fatalf("initial selection = %q, want code", a.selectedNode)
 	}
-	send("j") // down a layer
+	send(tea.KeyDown)
 	if a.selectedNode != "deps" {
 		t.Errorf("after down = %q, want deps", a.selectedNode)
 	}
-	send("k") // up a layer
+	send(tea.KeyUp)
 	if a.selectedNode != "code" {
 		t.Errorf("after up = %q, want code", a.selectedNode)
 	}
-	send("l") // right within layer
+	send(tea.KeyRight)
 	if a.selectedNode != "go" {
 		t.Errorf("after right = %q, want go", a.selectedNode)
 	}
@@ -234,12 +234,12 @@ func TestGraphPinToggle(t *testing.T) {
 		t.Fatalf("initial selection = %q, want code", a.selectedNode)
 	}
 
-	press := func(s string) {
-		m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+	pin := func() {
+		m, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
 		a = m.(App)
 	}
 
-	press("p") // pin code's cone
+	pin() // pin code's cone (space)
 	if len(a.pins) != 1 || a.pins[0].key != "code" {
 		t.Fatalf("pins = %v, want [code]", a.pins)
 	}
@@ -251,9 +251,9 @@ func TestGraphPinToggle(t *testing.T) {
 		t.Errorf("focus cone should exclude go (unrelated): %v", fs)
 	}
 
-	press("p") // toggle the same node off (unpin)
+	pin() // toggle the same node off (unpin)
 	if len(a.pins) != 0 {
-		t.Errorf("pins not cleared on second p: %v", a.pins)
+		t.Errorf("pins not cleared on second space: %v", a.pins)
 	}
 	if a.focusSet() != nil {
 		t.Errorf("focusSet should be nil with no pins")
@@ -327,7 +327,7 @@ func TestFilterFindsOutsidePinsThenPinClearsIt(t *testing.T) {
 
 	// Pin it: the filter clears and the view returns to the pins (now unioned).
 	a.selectedNode = "node-deps"
-	m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("p")})
+	m, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
 	a = m.(App)
 	if a.filterInput.Value() != "" {
 		t.Errorf("pinning should clear the filter, got %q", a.filterInput.Value())
@@ -338,11 +338,71 @@ func TestFilterFindsOutsidePinsThenPinClearsIt(t *testing.T) {
 	}
 }
 
+// Pins persist across trips out to the run list and into another run — so an
+// elaborate pin set survives navigating between runs.
+func TestPinsPersistAcrossRuns(t *testing.T) {
+	a := NewApp(nil, AppConfig{})
+	a.hasList = true
+	open := func(fixture string) {
+		m, _ := a.Update(runOpenedMsg{run: loadRun(t, fixture)})
+		a = m.(App)
+		m, _ = a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+		a = m.(App)
+	}
+
+	open("run_failed.json")
+	m, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace}) // pin the selected node
+	a = m.(App)
+	if len(a.pins) != 1 {
+		t.Fatalf("expected 1 pin, got %v", a.pins)
+	}
+	pinned := a.pins[0].key
+
+	// backspace returns to the run list; pins survive.
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	a = m.(App)
+	if a.mode != modeList {
+		t.Fatalf("backspace should return to the list, mode=%v", a.mode)
+	}
+	if len(a.pins) != 1 || a.pins[0].key != pinned {
+		t.Fatalf("pins should persist at the list, got %v", a.pins)
+	}
+
+	// Opening another run keeps the pins.
+	open("run_succeeded.json")
+	if len(a.pins) != 1 || a.pins[0].key != pinned {
+		t.Fatalf("pins should persist into the next run, got %v", a.pins)
+	}
+}
+
+// --pin seeds substring-matched pins once, on the first run opened.
+func TestSeedPinsFromConfig(t *testing.T) {
+	a := NewApp(nil, AppConfig{Pins: []string{"deps"}})
+	m, _ := a.Update(runOpenedMsg{run: loadRun(t, "sample_dag_failed.json")})
+	a = m.(App)
+	m, _ = a.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	a = m.(App)
+
+	// "deps" matches go-deps, node-deps, py-deps — all pinned.
+	got := map[string]bool{}
+	for _, p := range a.pins {
+		got[p.key] = true
+	}
+	for _, want := range []string{"go-deps", "node-deps", "py-deps"} {
+		if !got[want] {
+			t.Errorf("--pin deps should have pinned %s; pins=%v", want, a.pins)
+		}
+	}
+	if !a.pinsSeeded {
+		t.Error("pinsSeeded should be set after the first run open")
+	}
+}
+
 // Pins accumulate, and esc pops only the most recent one (not all of them).
 func TestPinsAccumulateAndEscPopsLast(t *testing.T) {
 	a := openGraph(t, "run_failed.json")
-	press := func(s string) {
-		m, _ := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+	pin := func() {
+		m, _ := a.Update(tea.KeyMsg{Type: tea.KeySpace})
 		a = m.(App)
 	}
 	esc := func() {
@@ -350,14 +410,14 @@ func TestPinsAccumulateAndEscPopsLast(t *testing.T) {
 		a = m.(App)
 	}
 
-	press("p")
+	pin()
 	first := a.selectedNode
 	a.moveSelection(1, 0) // move to a different visible node
 	second := a.selectedNode
 	if second == first {
 		t.Fatalf("expected selection to move off %q for a distinct second pin", first)
 	}
-	press("p")
+	pin()
 	if len(a.pins) != 2 {
 		t.Fatalf("expected 2 accumulated pins, got %v", a.pins)
 	}
@@ -404,6 +464,8 @@ func TestDetailPaneAndLogs(t *testing.T) {
 	}
 }
 
+// Graph mode is type-to-filter: printable keys build the filter live (no /),
+// backspace deletes, and esc clears it.
 func TestGraphFilterTyping(t *testing.T) {
 	a := openGraph(t, "run_succeeded.json")
 
@@ -412,10 +474,6 @@ func TestGraphFilterTyping(t *testing.T) {
 		a = m.(App)
 	}
 
-	press("/")
-	if !a.filtering {
-		t.Fatal("/ did not activate the filter input")
-	}
 	press("v")
 	press("e")
 	press("t")
@@ -423,13 +481,17 @@ func TestGraphFilterTyping(t *testing.T) {
 		t.Errorf("filter value = %q, want vet", got)
 	}
 
-	// Enter keeps the filter and closes the input.
-	m, _ := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// backspace deletes the last character.
+	m, _ := a.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	a = m.(App)
-	if a.filtering {
-		t.Error("enter should close the filter input")
+	if got := a.filterInput.Value(); got != "ve" {
+		t.Errorf("backspace should delete last char, got %q", got)
 	}
-	if a.filterInput.Value() != "vet" {
-		t.Error("enter should keep the filter value")
+
+	// esc clears the filter entirely.
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	a = m.(App)
+	if a.filterInput.Value() != "" {
+		t.Errorf("esc should clear the filter, got %q", a.filterInput.Value())
 	}
 }

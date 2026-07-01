@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,6 +29,7 @@ type options struct {
 	definition string // .rwx definition path, required when a branch has several
 	run        string // explicit run ID to open
 	dir        string // checkout dir for the static-YAML fallback (default: cwd)
+	pin        string // comma-separated substring terms to pre-pin in the graph
 	print      bool   // render once to stdout and exit (no interactive TUI)
 	version    bool   // print version and exit
 }
@@ -39,12 +41,27 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.definition, "definition", "", "RWX definition path (required when a branch has multiple)")
 	fs.StringVar(&o.run, "run", "", "explicit run ID to open")
 	fs.StringVar(&o.dir, "dir", ".", "checkout directory for the static-YAML fallback")
+	fs.StringVar(&o.pin, "pin", "", "comma-separated substring terms to pre-pin (e.g. --pin api,deploy)")
 	fs.BoolVar(&o.print, "print", false, "render once to stdout and exit (no interactive TUI)")
 	fs.BoolVar(&o.version, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
 	return o, nil
+}
+
+// splitPins turns a comma-separated --pin value into trimmed, non-empty terms.
+func splitPins(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var terms []string
+	for _, t := range strings.Split(s, ",") {
+		if t = strings.TrimSpace(t); t != "" {
+			terms = append(terms, t)
+		}
+	}
+	return terms
 }
 
 func main() {
@@ -75,7 +92,7 @@ func run(opts options) error {
 		return printOnce(client, opts, filter)
 	}
 
-	app := ui.NewApp(client, ui.AppConfig{Run: opts.run, Filter: filter})
+	app := ui.NewApp(client, ui.AppConfig{Run: opts.run, Filter: filter, Pins: splitPins(opts.pin)})
 	_, err := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }

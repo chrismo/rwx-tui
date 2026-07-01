@@ -13,7 +13,6 @@ type keyMap struct {
 	Back    key.Binding
 	ToList  key.Binding
 	Quit    key.Binding
-	Filter  key.Binding
 	Pin     key.Binding
 	Logs    key.Binding
 	Refresh key.Binding
@@ -34,8 +33,7 @@ func defaultKeyMap() keyMap {
 		Back:    key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		ToList:  key.NewBinding(key.WithKeys("backspace"), key.WithHelp("⌫", "list")),
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
-		Filter:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-		Pin:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pin")),
+		Pin:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pin")),
 		Logs:    key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "logs")),
 		Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Top:     key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),
@@ -59,7 +57,17 @@ func (h modeHelp) ShortHelp() []key.Binding {
 	case modeList:
 		return []key.Binding{h.keys.Up, h.keys.Down, h.keys.Enter, h.keys.All, h.keys.Mine, h.keys.Branch, h.keys.Refresh, h.keys.Quit}
 	case modeGraph:
-		return []key.Binding{h.keys.Up, h.keys.Down, h.keys.Left, h.keys.Right, h.keys.Enter, h.keys.Pin, h.keys.Filter, h.keys.Back, h.keys.ToList, h.keys.Quit}
+		// Graph mode is type-to-filter: printable keys build the filter live, so
+		// these labels describe the non-letter actions plus the typing hint.
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("up", "down", "left", "right"), key.WithHelp("↑↓←→", "move")),
+			key.NewBinding(key.WithKeys("runes"), key.WithHelp("type", "filter")),
+			h.keys.Pin,
+			h.keys.Enter,
+			h.keys.Back,
+			h.keys.ToList,
+			key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("^C", "quit")),
+		}
 	default:
 		return []key.Binding{h.keys.Quit}
 	}

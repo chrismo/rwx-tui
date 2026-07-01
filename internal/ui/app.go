@@ -164,6 +164,7 @@ const (
 type AppConfig struct {
 	Run    string         // open this run directly, skipping the list
 	Filter rwx.ListFilter // filter for the run list
+	Pins   []string       // substring terms to pre-pin on the first run opened
 }
 
 // App is the root Bubble Tea model. It starts on the run list (the home) and
@@ -196,8 +197,8 @@ type App struct {
 	selectedNode string    // key of the highlighted graph node
 	xOffset      int       // horizontal pan offset for the graph viewport
 	pins         []pin     // pinned anchors (LIFO); cones combine per pin.refine
-	filtering    bool      // the / filter input is active
-	filterInput  textinput.Model
+	pinsSeeded   bool      // AppConfig.Pins have been applied (one-time, first run)
+	filterInput  textinput.Model // stores the live graph filter string (type-to-filter)
 	logsLoading  bool   // logs fetch in flight for the open detail pane
 	detailOpen   bool   // detail pane shown for the selected node
 	logsContent  string // fetched logs ("" = show task detail instead)
@@ -344,6 +345,40 @@ func (a *App) togglePin(key string) {
 	}
 	refine := a.focusSet()[key] // already visible in the pin view → narrow it
 	a.pins = append(a.pins, pin{key: key, refine: refine})
+}
+
+// isPinned reports whether key is currently pinned.
+func (a *App) isPinned(key string) bool {
+	for _, p := range a.pins {
+		if p.key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// seedPins applies AppConfig.Pins once, when the first run opens. Each term is
+// a case-insensitive substring; every node it matches is pinned (via the same
+// adaptive refine/add rule as interactive pinning), so `--pin api` pins every
+// api* node and a critical-path term narrows to that path. Pins persist across
+// later runs, so this only runs once.
+func (a *App) seedPins() {
+	if a.pinsSeeded || a.graph == nil {
+		return
+	}
+	a.pinsSeeded = true
+	for _, term := range a.cfg.Pins {
+		lt := strings.ToLower(strings.TrimSpace(term))
+		if lt == "" {
+			continue
+		}
+		for _, n := range a.graph.Nodes {
+			if strings.Contains(strings.ToLower(n.Key), lt) && !a.isPinned(n.Key) {
+				a.togglePin(n.Key)
+			}
+		}
+	}
+	a.clampSelectionToVisible()
 }
 
 // popPin removes the most recently added pin. Reports whether one was removed.
@@ -654,6 +689,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.layout = graph.Layout(a.graph)
 			a.selectedNode = firstNode(a.layout)
 			a.mode = modeGraph
+			a.seedPins() // one-time --pin application (persists across later runs)
 		} else if a.hasList {
 			a.mode = modeList // stay usable: drop back to the list on error
 		}
@@ -697,29 +733,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.viewport.GotoTop()
 		return a, nil
 	case tea.KeyMsg:
-		// While the / filter input is active, keystrokes edit it; esc clears and
-		// closes, enter keeps the filter and closes.
-		if a.filtering {
-			switch {
-			case key.Matches(m, a.keys.Back):
-				a.filtering = false
-				a.filterInput.Blur()
-				a.filterInput.SetValue("")
-			case m.Type == tea.KeyEnter:
-				a.filtering = false
-				a.filterInput.Blur()
-			default:
-				var cmd tea.Cmd
-				a.filterInput, cmd = a.filterInput.Update(m)
-				a.clampSelectionToVisible()
-				a.refresh()
-				a.ensureSelectedVisible()
-				return a, cmd
-			}
-			a.clampSelectionToVisible()
-			a.refresh()
-			return a, nil
-		}
 		model, cmd := a.handleKey(m)
 		a = model.(App)
 		a.refresh()
@@ -734,14 +747,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Quit is global.
-	if key.Matches(k, a.keys.Quit) {
+	// ctrl+c always quits. Plain "q" quits only in list mode; in the graph it's
+	// a filter character (type-to-filter), so it's handled per mode below.
+	if k.Type == tea.KeyCtrlC {
 		return a, tea.Quit
 	}
 
 	switch a.mode {
 	case modeList:
 		switch {
+		case key.Matches(k, a.keys.Quit):
+			return a, tea.Quit
 		case key.Matches(k, a.keys.Up):
 			if a.selected > 0 {
 				a.selected--
@@ -793,11 +809,31 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
-		switch {
-		case key.Matches(k, a.keys.Back):
-			// esc backs out of the current visual state without leaving the grid:
-			// clear an active filter first (it's the finder overlaying the pin
-			// view), then pop the last pin, else do nothing.
+		// Graph mode is type-to-filter: printable keys build the filter live and
+		// the collapse machinery narrows the view. The few actions live on
+		// non-letter keys so no letter is stolen from the filter.
+		switch k.Type {
+		case tea.KeyUp:
+			a.moveSelection(-1, 0)
+		case tea.KeyDown:
+			a.moveSelection(1, 0)
+		case tea.KeyLeft:
+			a.moveSelection(0, -1)
+		case tea.KeyRight:
+			a.moveSelection(0, 1)
+		case tea.KeyEnter:
+			if a.selectedNode != "" {
+				a.detailOpen = true
+				a.logsContent = ""
+				a.logsLoading = false
+			}
+		case tea.KeySpace:
+			a.togglePin(a.selectedNode)
+			a.filterInput.SetValue("") // pinning snaps back from the finder to the pin view
+			a.clampSelectionToVisible()
+		case tea.KeyEsc:
+			// Back out of the current visual state without leaving the grid:
+			// clear the finder filter first, then pop the last pin, else nothing.
 			switch {
 			case a.filterInput.Value() != "":
 				a.filterInput.SetValue("")
@@ -805,33 +841,17 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case a.popPin():
 				a.clampSelectionToVisible()
 			}
-		case key.Matches(k, a.keys.ToList):
-			if a.hasList {
+		case tea.KeyBackspace:
+			if v := a.filterInput.Value(); v != "" {
+				r := []rune(v)
+				a.filterInput.SetValue(string(r[:len(r)-1]))
+				a.clampSelectionToVisible()
+			} else if a.hasList { // nothing to delete: go back to the run list
 				a.err = nil
 				a.mode = modeList
 			}
-			return a, nil
-		case key.Matches(k, a.keys.Enter):
-			if a.selectedNode != "" {
-				a.detailOpen = true
-				a.logsContent = ""
-				a.logsLoading = false
-			}
-		case key.Matches(k, a.keys.Up):
-			a.moveSelection(-1, 0)
-		case key.Matches(k, a.keys.Down):
-			a.moveSelection(1, 0)
-		case key.Matches(k, a.keys.Left):
-			a.moveSelection(0, -1)
-		case key.Matches(k, a.keys.Right):
-			a.moveSelection(0, 1)
-		case key.Matches(k, a.keys.Filter):
-			a.filtering = true
-			a.filterInput.Focus()
-			return a, textinput.Blink
-		case key.Matches(k, a.keys.Pin):
-			a.togglePin(a.selectedNode)
-			a.filterInput.SetValue("") // pinning snaps back from the finder to the pin view
+		case tea.KeyRunes:
+			a.filterInput.SetValue(a.filterInput.Value() + string(k.Runes))
 			a.clampSelectionToVisible()
 		}
 	}
@@ -847,9 +867,6 @@ func (a App) View() string {
 		return a.spinner.View() + " " + theme.Faint.Render("loading…")
 	case modeList, modeGraph:
 		footer := a.footerView()
-		if a.filtering {
-			footer = a.filterInput.View() + "\n" + footer
-		}
 		if a.err != nil && a.mode == modeList {
 			footer = theme.Failure.Render(fmt.Sprintf("error: %v", a.err)) + "\n" + footer
 		}
