@@ -1,16 +1,12 @@
 # crux
 
 A little terminal UI for watching [RWX](https://www.rwx.com) runs, with a Flow
-dependency-graph viewer that's trying to be nicer than squinting at the web UI.
+dependency-graph viewer that's trying to be friendlier inside complex DAGs.
 
-It's a brand-new baby binary. It doesn't do all that much yet, and the graph
-rendering is charmingly crude. But it lists your runs, draws the DAG, colors what
+It doesn't do all that much yet, and the graph
+rendering is crude. But it lists your runs, draws the DAG, colors what
 cached vs. ran vs. failed, and points at the critical path — which is most of
 what you actually want to know mid-build.
-
-> The name: the *crux* is the decisive move — the bottleneck, the critical path.
-> Which is the thing this tool exists to surface. (Also: four letters, and it
-> tab-completes without fighting its parent `rwx`.)
 
 ## Install
 
@@ -36,10 +32,6 @@ crux --print          # render once to stdout and exit (no TUI; handy for pipes)
 crux --version
 ```
 
-Keys — **list:** `↑/↓` move · `enter` open · `a`/`m`/`b` all/mine/branch · `r`
-refresh · `q` quit. **graph:** `↑/↓/←/→` move the cursor · `enter` task detail ·
-`L` logs · `f` isolate a node's subgraph · `/` filter · `esc` back.
-
 What the graph tries to make obvious:
 
 - **cache clarity** — a glyph per task: `✓` ran, `⚡` cache hit, `✗` failed,
@@ -50,7 +42,7 @@ What the graph tries to make obvious:
 
 In-flight runs live-update on a poll.
 
-## Honest status
+## Status
 
 Very early. Known rough edges:
 
