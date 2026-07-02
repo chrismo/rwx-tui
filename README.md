@@ -14,6 +14,11 @@ what you actually want to know mid-build.
 brew install chrismo/crux/crux
 ```
 
+To upgrade later, use the same fully-qualified name — `brew upgrade
+chrismo/crux/crux`. The bare `brew upgrade crux` only resolves once Homebrew has
+refreshed the tap (`brew update`); the full `user/tap/token` path works from a
+cold cache.
+
 It shells out to the [`rwx` CLI](https://www.rwx.com/docs) (**v3.19.0 or
 newer**), so you'll need that installed and authed:
 
