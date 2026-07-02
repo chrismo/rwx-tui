@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/chrismo/crux/internal/rwx"
 )
 
@@ -49,14 +51,17 @@ func RenderRunList(runs []rwx.RunSummary, selected int, now time.Time) string {
 		if r.Status.Execution == "in_progress" {
 			result = "running"
 		}
-		left := theme.RunStatus(r.Status).Render(fmt.Sprintf("%s %-9s", glyph, result))
+		left := theme.RunStatus(r.Status).Render(glyph + " " + padRight(result, 9))
 
-		row := fmt.Sprintf("%s%s  %-13s  %-26s  %8s  %5s",
+		// Columns are padded by display width (not bytes) and truncated to fixed
+		// widths, so multibyte titles and long definition paths can't shove the
+		// row out of alignment.
+		row := fmt.Sprintf("%s%s  %s  %s  %s  %s",
 			cursor, left,
-			r.DefinitionPath,
-			truncate(r.Title, 26),
-			humanizeAge(r.CreatedAt, now),
-			runtimeStr(r.CompletedRuntimeSeconds),
+			padRight(r.DefinitionPath, 18),
+			padRight(r.Title, 26),
+			padLeft(humanizeAge(r.CreatedAt, now), 8),
+			padLeft(runtimeStr(r.CompletedRuntimeSeconds), 5),
 		)
 		if i == selected {
 			row = theme.Selected.Render(row)
@@ -94,12 +99,15 @@ func humanizeAge(iso string, now time.Time) string {
 	}
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	if max <= 1 {
-		return s[:max]
-	}
-	return s[:max-1] + "…"
+// padRight truncates s to w display cells (adding … when cut) and right-pads to
+// exactly w cells. padLeft is the same but right-aligned. Both measure by
+// display width so multibyte content stays column-aligned.
+func padRight(s string, w int) string {
+	s = runewidth.Truncate(s, w, "…")
+	return s + strings.Repeat(" ", w-runewidth.StringWidth(s))
+}
+
+func padLeft(s string, w int) string {
+	s = runewidth.Truncate(s, w, "…")
+	return strings.Repeat(" ", w-runewidth.StringWidth(s)) + s
 }

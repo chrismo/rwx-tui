@@ -36,48 +36,35 @@ the view of that. Honest limitation (same as the graph's filter): a view filter
 only sees loaded pages — it's "filter what's fetched," not "search all history."
 Surface the count so this is legible: `filter: web  (3 of 40 shown)`.
 
-## Interaction model: `/` to filter (chosen)
+## Interaction model: type-to-filter + Tab-cycle scope (chosen 2026-07-01)
 
-Modal filter line, fzf/vim-style. Letters stay as actions (no key relocation) —
-this is why `/` was chosen over graph-style always-on typing for the list.
+Consistent with the graph view: **just type** to build the view filter, no `/`.
+The fetch-scope trio (`a`/`m`/`b`) — which has no clean single-key home once
+letters type — collapses into one **Tab** that cycles scope. This keeps "one
+law, just type" across screens while preserving scope access.
 
-- `/` enters filter mode: a filter line appears; printable keys build the term
-  live; the list narrows on each keystroke.
-- `esc` clears the filter and exits filter mode (empty filter = show all).
-- `enter` confirms/exits filter mode but **keeps** the filter applied, returning
-  letter keys to their normal actions while the narrowed view persists.
-- Up/Down still move the selection within the filtered rows while typing.
-- Selection stays valid: if the current selection filters out, clamp to the
-  first visible row.
+Key map:
 
-### Open question to settle before build — the other keys under `/`
+- **type** — printable keys build the view-filter term live; list narrows per
+  keystroke.
+- **Tab** — cycle fetch scope all → mine → branch (Shift+Tab reverse); each is a
+  server re-fetch. Tab→branch uses the *selected* run's branch (skip if none).
+- **arrows** — move selection; **Home/End** top/bottom; **ctrl+r** refresh;
+  **ctrl+c** quit; **enter** open the selected run.
+- **esc** — clear the view filter (empty = show all).
+- Selection clamps to the first visible row if the current one filters out.
 
-With `/` chosen, the existing letter actions are undisturbed *outside* filter
-mode. The thing to decide is how the **fetch** filters (`a`/`m`/`b`) and the new
-**view** filter (`/`) present together so it doesn't feel like two unrelated
-systems:
-
-- Option 1 — **independent, both shown in header.** Header shows the fetch label
-  (`mine` / `branch: x`) AND the view filter (`/web`) side by side. Simplest;
-  they never interact. Recommended.
-- Option 2 — **`/` can also drive fetch filters** via a prefix grammar (e.g.
-  `/branch:foo` re-fetches, bare `/foo` view-filters). More power, more surface
-  area, risks reinventing the letter keys. Defer.
-- Option 3 — **collapse `b` into the view filter** now that Branch is a matched
-  field: typing a branch name in `/` narrows by branch client-side, so `b`
-  becomes redundant for the single-repo case. Keep `b` for the server round-trip
-  when the branch isn't on a loaded page.
-
-Leaning Option 1 for v1 (keep tiers independent, both visible). Revisit 2/3 once
-it's in hand.
+Header shows both tiers together (fetch scope + view filter), e.g.
+`mine · filter: web  (3 of 40 shown)`.
 
 ## Startup args
 
 Mirror the graph's seeding pattern (`--filter`/`--pin` seed the graph):
 
-- `--list-filter <substr>` (or reuse a name TBD) — seeds the **view** filter so
-  `crux --list-filter web` opens with the list pre-narrowed. Naming caveat:
-  `--filter` is already taken by the graph; pick a distinct name or namespace.
+- `--list-filter <substr>` — seeds the **view** filter so `crux --list-filter
+  web` opens the list pre-narrowed. The existing graph `--filter` is renamed to
+  `--graph-filter` (the two filter different domains — run titles vs node keys —
+  so they get distinct names rather than one overloaded flag).
 - `--failed` — a **fetch** filter (result-status = failed). The killer startup
   filter: "just show me what broke." Maps to existing `ListFilter.ResultStatus`.
 - `--mine` — expose the existing `ListFilter.Mine` as a startup flag.
@@ -134,7 +121,9 @@ injected `now`.
 
 ## Decisions locked / open
 
-- LOCKED: `/` modal filter (not always-on typing). Match Title, DefinitionPath,
-  Branch. Two-tier fetch-vs-view model. Trigger field NOT matched (dropped).
-- OPEN: header presentation of the two tiers (Option 1/2/3 above) — leaning 1.
-- OPEN: startup flag name for the view-filter seed (`--filter` collides).
+- LOCKED: type-to-filter (not `/`-modal) + Tab-cycles fetch scope, matching the
+  graph. Match Title, DefinitionPath, Branch. Two-tier fetch-vs-view model.
+  Trigger field NOT matched (dropped).
+- LOCKED: header shows both tiers (scope + view filter) side by side.
+- LOCKED: `--list-filter` seeds the view; graph `--filter` → `--graph-filter`.
+- Phase 0 (alignment + log keyboard-scroll bugs) SHIPPED.

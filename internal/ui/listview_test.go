@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/chrismo/crux/internal/rwx"
 )
 
@@ -51,6 +53,29 @@ func TestRenderRunListEmpty(t *testing.T) {
 	out := RenderRunList(nil, 0, time.Now())
 	if !strings.Contains(out, "no runs") {
 		t.Errorf("expected empty-state message, got %q", out)
+	}
+}
+
+// padRight/padLeft must produce exact display-cell widths regardless of
+// multibyte or wide runes, or the run-list columns drift out of alignment.
+func TestPadCellWidths(t *testing.T) {
+	cases := []struct {
+		s string
+		w int
+	}{
+		{"hi", 5},                   // short: pad
+		{"a-very-long-path.yml", 8}, // long: truncate + …
+		{"—", 5},                    // multibyte em-dash (3 bytes, 1 cell)
+		{"日本語テスト", 6},          // wide runes (2 cells each)
+		{"", 4},                     // empty
+	}
+	for _, c := range cases {
+		if got := runewidth.StringWidth(padRight(c.s, c.w)); got != c.w {
+			t.Errorf("padRight(%q, %d) width = %d, want %d", c.s, c.w, got, c.w)
+		}
+		if got := runewidth.StringWidth(padLeft(c.s, c.w)); got != c.w {
+			t.Errorf("padLeft(%q, %d) width = %d, want %d", c.s, c.w, got, c.w)
+		}
 	}
 }
 

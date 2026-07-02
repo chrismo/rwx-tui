@@ -563,6 +563,23 @@ func TestDetailPaneAndLogs(t *testing.T) {
 	}
 }
 
+// The detail/log pane must scroll by keyboard, not just the mouse wheel: with a
+// long log open, Down moves the viewport.
+func TestLogPaneKeyboardScroll(t *testing.T) {
+	a := openGraph(t, "run_failed.json")
+	m, _ := a.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open detail
+	a = m.(App)
+	m, _ = a.Update(logsLoadedMsg{content: strings.Repeat("log line\n", 200)})
+	a = m.(App)
+
+	before := a.viewport.YOffset
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyDown})
+	a = m.(App)
+	if a.viewport.YOffset <= before {
+		t.Errorf("Down should scroll the log pane, YOffset %d -> %d", before, a.viewport.YOffset)
+	}
+}
+
 // Graph mode is type-to-filter: printable keys build the filter live (no /),
 // backspace deletes, and esc clears it.
 func TestGraphFilterTyping(t *testing.T) {

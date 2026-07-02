@@ -860,14 +860,27 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				} else {
 					a.detailOpen = false
 				}
+				return a, nil
 			case key.Matches(k, a.keys.Logs):
 				if a.selectedNode != "" {
 					a.logsLoading = true
 					a.logsContent = ""
 					return a, tea.Batch(fetchLogsCmd(a.client, a.run.RunID, a.selectedNode), a.spinner.Tick)
 				}
+				return a, nil
+			case key.Matches(k, a.keys.Top):
+				a.viewport.GotoTop()
+				return a, nil
+			case key.Matches(k, a.keys.Bottom):
+				a.viewport.GotoBottom()
+				return a, nil
+			default:
+				// Keyboard-scroll the pane (Up/Down/PgUp/PgDn/etc.) — previously
+				// only the mouse wheel could scroll a long detail/log pane.
+				var cmd tea.Cmd
+				a.viewport, cmd = a.viewport.Update(k)
+				return a, cmd
 			}
-			return a, nil
 		}
 		// Graph mode is type-to-filter: printable keys build the filter live and
 		// the collapse machinery narrows the view. The few actions live on
