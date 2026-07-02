@@ -10,6 +10,55 @@ import (
 	"github.com/chrismo/crux/internal/rwx"
 )
 
+// FilterRunList narrows runs by a case-insensitive substring over title,
+// definition path, and branch (the list view filter). Empty term returns runs
+// unchanged. Shared by the interactive list and the headless --print path.
+func FilterRunList(runs []rwx.RunSummary, term string) []rwx.RunSummary {
+	if term == "" {
+		return runs
+	}
+	f := strings.ToLower(term)
+	out := make([]rwx.RunSummary, 0, len(runs))
+	for _, r := range runs {
+		if strings.Contains(strings.ToLower(r.Title), f) ||
+			strings.Contains(strings.ToLower(r.DefinitionPath), f) ||
+			strings.Contains(strings.ToLower(r.Branch), f) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ScopeLabel names the Tab-cycle fetch scope ("all"/"mine"/"branch"). Used to
+// track and advance the cycle, not for display.
+func ScopeLabel(f rwx.ListFilter) string {
+	switch {
+	case f.Mine:
+		return "mine"
+	case f.Branch != "":
+		return "branch"
+	default:
+		return "all"
+	}
+}
+
+// FetchLabel describes the full server-side fetch state for the header, ""
+// meaning the default (all). Unlike ScopeLabel it also reflects result-status
+// (e.g. --failed), which is orthogonal to the all/mine/branch cycle.
+func FetchLabel(f rwx.ListFilter) string {
+	var parts []string
+	if f.Mine {
+		parts = append(parts, "mine")
+	}
+	if f.Branch != "" {
+		parts = append(parts, "branch: "+f.Branch)
+	}
+	if f.ResultStatus != "" {
+		parts = append(parts, f.ResultStatus)
+	}
+	return strings.Join(parts, " · ")
+}
+
 // runGlyph returns a glyph and color for a run-level status. In-progress runs
 // are distinguished from their (not yet meaningful) result. Color comes from the
 // theme (theme.RunStatus); only the glyph lives here.

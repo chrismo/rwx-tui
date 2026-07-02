@@ -15,12 +15,8 @@ type keyMap struct {
 	Quit    key.Binding
 	Pin     key.Binding
 	Logs    key.Binding
-	Refresh key.Binding
 	Top     key.Binding
 	Bottom  key.Binding
-	All     key.Binding
-	Mine    key.Binding
-	Branch  key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -35,12 +31,8 @@ func defaultKeyMap() keyMap {
 		Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		Pin:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "pin")),
 		Logs:    key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "logs")),
-		Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Top:     key.NewBinding(key.WithKeys("g", "home"), key.WithHelp("g", "top")),
 		Bottom:  key.NewBinding(key.WithKeys("G", "end"), key.WithHelp("G", "bottom")),
-		All:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "all")),
-		Mine:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "mine")),
-		Branch:  key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "branch")),
 	}
 }
 
@@ -55,7 +47,15 @@ type modeHelp struct {
 func (h modeHelp) ShortHelp() []key.Binding {
 	switch h.mode {
 	case modeList:
-		return []key.Binding{h.keys.Up, h.keys.Down, h.keys.Enter, h.keys.All, h.keys.Mine, h.keys.Branch, h.keys.Refresh, h.keys.Quit}
+		// Type-to-filter like the graph; Tab cycles the server-side fetch scope.
+		return []key.Binding{
+			key.NewBinding(key.WithKeys("up", "down"), key.WithHelp("↑↓", "move")),
+			key.NewBinding(key.WithKeys("runes"), key.WithHelp("type", "filter")),
+			key.NewBinding(key.WithKeys("tab"), key.WithHelp("⇥", "scope")),
+			h.keys.Enter,
+			key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("^R", "refresh")),
+			key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("^C", "quit")),
+		}
 	case modeGraph:
 		// Graph mode is type-to-filter: printable keys build the filter live, so
 		// these labels describe the non-letter actions plus the typing hint.

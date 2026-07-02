@@ -27,12 +27,15 @@ var (
 type options struct {
 	branch     string // branch to resolve a run for (default: current git branch)
 	definition string // .rwx definition path, required when a branch has several
-	run        string // explicit run ID to open
-	dir        string // checkout dir for the static-YAML fallback (default: cwd)
-	pin        string // comma-separated substring terms to pre-pin in the graph
-	filter     string // substring to filter graph nodes (global finder)
-	print      bool   // render once to stdout and exit (no interactive TUI)
-	version    bool   // print version and exit
+	run         string // explicit run ID to open
+	dir         string // checkout dir for the static-YAML fallback (default: cwd)
+	pin         string // comma-separated substring terms to pre-pin in the graph
+	graphFilter string // substring to filter graph nodes (global finder)
+	listFilter  string // substring to filter the run list (title/def/branch)
+	mine        bool   // fetch scope: only my runs
+	failed      bool   // fetch scope: only failed runs
+	print       bool   // render once to stdout and exit (no interactive TUI)
+	version     bool   // print version and exit
 }
 
 func parseFlags(args []string) (options, error) {
@@ -43,7 +46,10 @@ func parseFlags(args []string) (options, error) {
 	fs.StringVar(&o.run, "run", "", "explicit run ID to open")
 	fs.StringVar(&o.dir, "dir", ".", "checkout directory for the static-YAML fallback")
 	fs.StringVar(&o.pin, "pin", "", "comma-separated substring terms to pre-pin (e.g. --pin api,deploy)")
-	fs.StringVar(&o.filter, "filter", "", "filter graph nodes by substring (e.g. --filter build)")
+	fs.StringVar(&o.graphFilter, "graph-filter", "", "filter graph nodes by substring (e.g. --graph-filter build)")
+	fs.StringVar(&o.listFilter, "list-filter", "", "filter the run list by substring (title/definition/branch)")
+	fs.BoolVar(&o.mine, "mine", false, "list only my runs")
+	fs.BoolVar(&o.failed, "failed", false, "list only failed runs")
 	fs.BoolVar(&o.print, "print", false, "render once to stdout and exit (no interactive TUI)")
 	fs.BoolVar(&o.version, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
@@ -87,14 +93,20 @@ func run(opts options) error {
 	if err := client.CheckVersion(context.Background()); err != nil {
 		return err
 	}
-	filter := rwx.ListFilter{Limit: 30, Branch: opts.branch}
+	filter := rwx.ListFilter{Limit: 30, Branch: opts.branch, Mine: opts.mine}
+	if opts.failed {
+		filter.ResultStatus = "failed"
+	}
 
 	// Headless render: one-shot fetch + print, no TUI loop.
 	if opts.print {
 		return printOnce(client, opts, filter)
 	}
 
-	app := ui.NewApp(client, ui.AppConfig{Run: opts.run, Filter: filter, Pins: splitPins(opts.pin), GraphFilter: opts.filter})
+	app := ui.NewApp(client, ui.AppConfig{
+		Run: opts.run, Filter: filter, Pins: splitPins(opts.pin),
+		GraphFilter: opts.graphFilter, ListFilter: opts.listFilter,
+	})
 	_, err := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
@@ -106,13 +118,14 @@ func printOnce(client *rwx.Client, opts options, filter rwx.ListFilter) error {
 		if err != nil {
 			return err
 		}
-		fmt.Print(ui.NewModel(r, splitPins(opts.pin), opts.filter).View())
+		fmt.Print(ui.NewModel(r, splitPins(opts.pin), opts.graphFilter).View())
 		return nil
 	}
 	rl, err := client.ListRuns(ctx, filter)
 	if err != nil {
 		return err
 	}
-	fmt.Print(ui.HomeView(rl.Runs, 0, time.Now(), ui.FilterLabel(filter)))
+	vis := ui.FilterRunList(rl.Runs, opts.listFilter)
+	fmt.Print(ui.HomeView(vis, 0, time.Now(), ui.FetchLabel(filter), opts.listFilter, len(rl.Runs)))
 	return nil
 }

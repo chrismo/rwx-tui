@@ -99,19 +99,18 @@ Fix: while the log pane is open, forward Up/Down/PgUp/PgDn and `g`/`G` to
 
 ## Phases
 
-### Phase 0 — quick wins (independent, ship first)
+### Phase 0 — quick wins (SHIPPED, cc9dfb8)
 - Alignment fix + snapshot.
 - Log keyboard-scroll fix.
 
-### Phase 1 — view filter core
-- `/` filter mode: state, live substring match over Title/DefinitionPath/Branch,
-  selection clamp, header count `(n of N shown)`.
-- Header shows fetch label + view filter together (Option 1).
-- Tests: filtering narrows rows, selection clamps, esc clears, enter persists.
+### Phase 1 — view filter core (SHIPPED)
+- Type-to-filter: live substring match over Title/DefinitionPath/Branch,
+  selection clamp to visible rows, esc clears. Tab cycles fetch scope.
+- Header shows fetch label + view filter + `(n of N shown)`.
 
-### Phase 2 — startup + fetch flags
-- `--failed`, `--mine`, list view-filter seed flag.
-- Confirm `--branch` narrows the list path.
+### Phase 2 — startup + fetch flags (SHIPPED)
+- `--list-filter` (view seed), `--graph-filter` (was `--filter`), `--mine`,
+  `--failed`. `--branch` drives the list fetch (sets ListFilter.Branch).
 
 ## Testing
 

@@ -132,18 +132,19 @@ func short(id string) string {
 	return id
 }
 
-// HomeView renders the run-list landing (header, list). Pure; backs both the
-// App's list mode and the headless --print path. filter is the active filter
-// label ("" = all), shown in the header so toggles are visible.
-func HomeView(runs []rwx.RunSummary, selected int, now time.Time, filter string) string {
+// HomeView renders the run-list landing (header, status line, list). runs is
+// the already view-filtered slice; total is the full fetched count (for the
+// "(n of N shown)" hint). scope is the fetch scope ("all"/"mine"/"branch") and
+// filter is the active view-filter term.
+func HomeView(runs []rwx.RunSummary, selected int, now time.Time, scope, filter string, total int) string {
 	var b strings.Builder
 	header := "crux"
 	if len(runs) > 0 && runs[0].RepositoryName != "" {
 		header += " · " + runs[0].RepositoryName
 	}
 	b.WriteString(theme.Header.Render(header))
-	if filter != "" {
-		b.WriteString("  " + theme.Special.Render("["+filter+"]"))
+	if s := listStatus(scope, filter, len(runs), total); s != "" {
+		b.WriteString("  " + theme.Special.Render(s))
 	}
 	b.WriteString("\n\n")
 	b.WriteString(RenderRunList(runs, selected, now))
@@ -151,16 +152,17 @@ func HomeView(runs []rwx.RunSummary, selected int, now time.Time, filter string)
 	return b.String()
 }
 
-// FilterLabel describes the active list filter for the header ("" = all/default).
-func FilterLabel(f rwx.ListFilter) string {
-	switch {
-	case f.Mine:
-		return "mine"
-	case f.Branch != "":
-		return "branch: " + f.Branch
-	default:
-		return ""
+// listStatus is the header suffix describing the two filter tiers: the fetch
+// scope (shown unless "all") and the view filter with a shown/total count.
+func listStatus(scope, filter string, shown, total int) string {
+	var parts []string
+	if scope != "" && scope != "all" {
+		parts = append(parts, scope)
 	}
+	if filter != "" {
+		parts = append(parts, fmt.Sprintf("filter: %s  (%d of %d shown)", filter, shown, total))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // ---- App router (list <-> graph) -----------------------------------------
@@ -176,9 +178,10 @@ const (
 // AppConfig configures the root App.
 type AppConfig struct {
 	Run         string         // open this run directly, skipping the list
-	Filter      rwx.ListFilter // filter for the run list
+	Filter      rwx.ListFilter // server-side fetch filter for the run list
 	Pins        []string       // substring terms to pre-pin on the first run opened
 	GraphFilter string         // initial graph node filter (type-to-filter seed)
+	ListFilter  string         // initial run-list view filter (type-to-filter seed)
 }
 
 // App is the root Bubble Tea model. It starts on the run list (the home) and
@@ -201,7 +204,8 @@ type App struct {
 	viewport viewport.Model
 
 	runs        []rwx.RunSummary
-	selected    int
+	selected    int    // index into the *visible* (view-filtered) runs
+	listFilter  string // client-side view filter over the fetched runs (type-to-filter)
 	nextCursor  string // pagination cursor for the next page ("" = no more)
 	loadingMore bool
 
@@ -229,9 +233,10 @@ func NewApp(client *rwx.Client, cfg AppConfig) App {
 	ti := textinput.New()
 	ti.Prompt = "filter: "
 	ti.CharLimit = 64
-	ti.SetValue(cfg.GraphFilter) // optional --filter seed
+	ti.SetValue(cfg.GraphFilter) // optional --graph-filter seed
 	return App{
 		filterInput: ti,
+		listFilter:  cfg.ListFilter, // optional --list-filter seed
 		client:   client,
 		cfg:      cfg,
 		now:      time.Now,
@@ -250,7 +255,7 @@ func NewApp(client *rwx.Client, cfg AppConfig) App {
 func (a App) bodyContent() string {
 	switch a.mode {
 	case modeList:
-		return HomeView(a.runs, a.selected, a.now(), FilterLabel(a.cfg.Filter))
+		return HomeView(a.visibleRuns(), a.selected, a.now(), FetchLabel(a.cfg.Filter), a.listFilter, len(a.runs))
 	case modeGraph:
 		if a.detailOpen {
 			switch {
@@ -673,6 +678,65 @@ func (a App) reloadList(f rwx.ListFilter) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(listRunsCmd(a.client, f, false), a.spinner.Tick)
 }
 
+// visibleRuns is the fetched runs narrowed by the client-side view filter (a
+// case-insensitive substring over title, definition path, and branch). This is
+// the "view filter" tier; the fetch filter (a.cfg.Filter) decides what's loaded.
+func (a *App) visibleRuns() []rwx.RunSummary {
+	return FilterRunList(a.runs, a.listFilter)
+}
+
+// selectedRun returns the currently-selected visible run, or nil if none.
+func (a *App) selectedRun() *rwx.RunSummary {
+	vis := a.visibleRuns()
+	if a.selected < 0 || a.selected >= len(vis) {
+		return nil
+	}
+	return &vis[a.selected]
+}
+
+// clampListSelection keeps the selection within the visible rows after the view
+// filter changes.
+func (a *App) clampListSelection() {
+	if n := len(a.visibleRuns()); a.selected >= n {
+		a.selected = n - 1
+	}
+	if a.selected < 0 {
+		a.selected = 0
+	}
+}
+
+// listScope names the current fetch scope from the active fetch filter.
+func (a *App) listScope() string { return ScopeLabel(a.cfg.Filter) }
+
+// cycleScope advances the fetch scope (all → mine → branch → all, or reverse)
+// and re-fetches. "branch" uses the selected run's branch; if there isn't one it
+// is skipped so the cycle never lands on an empty branch.
+func (a App) cycleScope(dir int) (tea.Model, tea.Cmd) {
+	order := []string{"all", "mine", "branch"}
+	cur := 0
+	for i, s := range order {
+		if s == a.listScope() {
+			cur = i
+		}
+	}
+	limit := a.cfg.Filter.Limit
+	for i := 1; i <= len(order); i++ {
+		next := order[((cur+dir*i)%len(order)+len(order))%len(order)]
+		switch next {
+		case "all":
+			return a.reloadList(rwx.ListFilter{Limit: limit})
+		case "mine":
+			return a.reloadList(rwx.ListFilter{Limit: limit, Mine: true})
+		case "branch":
+			if r := a.selectedRun(); r != nil && r.Branch != "" {
+				return a.reloadList(rwx.ListFilter{Limit: limit, Branch: r.Branch})
+			}
+			// no branch to scope to — keep cycling past it
+		}
+	}
+	return a, nil
+}
+
 func (a App) Init() tea.Cmd {
 	var fetch tea.Cmd
 	if a.cfg.Run != "" {
@@ -707,7 +771,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.Action == tea.MouseActionPress && a.mode == modeList {
 				// HomeView is: header line, blank line, then one row per run.
 				idx := m.Y + a.viewport.YOffset - 2
-				if idx >= 0 && idx < len(a.runs) {
+				if idx >= 0 && idx < len(a.visibleRuns()) {
 					a.selected = idx
 					a.refresh()
 				}
@@ -810,15 +874,15 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch a.mode {
 	case modeList:
-		switch {
-		case key.Matches(k, a.keys.Quit):
-			return a, tea.Quit
-		case key.Matches(k, a.keys.Up):
+		// Type-to-filter, like the graph: printable keys build the view filter;
+		// Tab cycles the server-side fetch scope. Actions live on non-letter keys.
+		switch k.Type {
+		case tea.KeyUp:
 			if a.selected > 0 {
 				a.selected--
 			}
-		case key.Matches(k, a.keys.Down):
-			if a.selected < len(a.runs)-1 {
+		case tea.KeyDown:
+			if a.selected < len(a.visibleRuns())-1 {
 				a.selected++
 			} else if a.nextCursor != "" && !a.loadingMore {
 				// At the bottom with more pages: fetch and append the next page.
@@ -827,24 +891,35 @@ func (a App) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				f.Cursor = a.nextCursor
 				return a, listRunsCmd(a.client, f, true)
 			}
-		case key.Matches(k, a.keys.Enter):
-			if len(a.runs) > 0 {
+		case tea.KeyHome:
+			a.selected = 0
+		case tea.KeyEnd:
+			a.selected = len(a.visibleRuns()) - 1
+		case tea.KeyEnter:
+			if r := a.selectedRun(); r != nil {
 				a.err = nil
 				a.mode = modeLoading
-				return a, tea.Batch(openRunCmd(a.client, a.runs[a.selected].ID), a.spinner.Tick)
+				return a, tea.Batch(openRunCmd(a.client, r.ID), a.spinner.Tick)
 			}
-		case key.Matches(k, a.keys.All):
-			return a.reloadList(rwx.ListFilter{Limit: a.cfg.Filter.Limit})
-		case key.Matches(k, a.keys.Mine):
-			return a.reloadList(rwx.ListFilter{Limit: a.cfg.Filter.Limit, Mine: true})
-		case key.Matches(k, a.keys.Branch):
-			if a.selected < len(a.runs) && a.runs[a.selected].Branch != "" {
-				return a.reloadList(rwx.ListFilter{Limit: a.cfg.Filter.Limit, Branch: a.runs[a.selected].Branch})
-			}
-		case key.Matches(k, a.keys.Refresh):
+		case tea.KeyTab:
+			return a.cycleScope(1)
+		case tea.KeyShiftTab:
+			return a.cycleScope(-1)
+		case tea.KeyCtrlR:
 			f := a.cfg.Filter
 			f.Cursor = ""
 			return a.reloadList(f)
+		case tea.KeyEsc:
+			a.listFilter = ""
+			a.clampListSelection()
+		case tea.KeyBackspace:
+			if r := []rune(a.listFilter); len(r) > 0 {
+				a.listFilter = string(r[:len(r)-1])
+				a.clampListSelection()
+			}
+		case tea.KeyRunes:
+			a.listFilter += string(k.Runes)
+			a.clampListSelection()
 		}
 	case modeGraph:
 		// When the detail pane is open it captures Back/Logs; other keys are

@@ -135,5 +135,13 @@ func TestSnapshotHome(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	now := time.Date(2026, 6, 30, 21, 0, 0, 0, time.UTC)
-	snapshotCheck(t, "home.txt", HomeView(rl.Runs, 0, now, ""))
+	snapshotCheck(t, "home.txt", HomeView(rl.Runs, 0, now, "all", "", len(rl.Runs)))
+}
+
+// A run-list view filter narrows to matching rows with a shown/total count.
+func TestSnapshotHomeFiltered(t *testing.T) {
+	runs := loadRunList(t)
+	now := time.Date(2026, 6, 30, 21, 0, 0, 0, time.UTC)
+	vis := FilterRunList(runs, "prime")
+	snapshotCheck(t, "home_filter_prime.txt", HomeView(vis, 0, now, "all", "prime", len(runs)))
 }

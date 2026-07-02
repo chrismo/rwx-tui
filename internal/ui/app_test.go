@@ -79,7 +79,7 @@ func TestFooterKeybarByMode(t *testing.T) {
 
 	a.mode = modeList
 	listFooter := a.footerView()
-	for _, want := range []string{"open", "all", "mine", "quit"} {
+	for _, want := range []string{"move", "filter", "scope", "open", "quit"} {
 		if !strings.Contains(listFooter, want) {
 			t.Errorf("list footer missing %q:\n%s", want, listFooter)
 		}
@@ -187,7 +187,7 @@ func TestListPaginationAppends(t *testing.T) {
 
 	// Pressing down at the last row with a cursor requests the next page.
 	a.selected = len(a.runs) - 1
-	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyDown})
 	a = m.(App)
 	if !a.loadingMore {
 		t.Error("down at bottom should set loadingMore")
@@ -204,18 +204,46 @@ func TestListPaginationAppends(t *testing.T) {
 	}
 }
 
-func TestListFilterToggleMine(t *testing.T) {
+// Tab cycles the server-side fetch scope (all → mine → branch) with a re-fetch.
+func TestListTabCyclesScope(t *testing.T) {
 	a := NewApp(nil, AppConfig{Filter: rwx.ListFilter{Limit: 30}})
 	m, _ := a.Update(runsLoadedMsg{runs: loadRunList(t)})
 	a = m.(App)
+	if a.listScope() != "all" {
+		t.Fatalf("initial scope = %q, want all", a.listScope())
+	}
 
-	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	m, _ = a.Update(tea.KeyMsg{Type: tea.KeyTab})
 	a = m.(App)
 	if !a.cfg.Filter.Mine {
-		t.Error("m should set the Mine filter")
+		t.Errorf("Tab should cycle to mine: %+v", a.cfg.Filter)
 	}
 	if a.mode != modeLoading {
-		t.Error("filter toggle should trigger a reload (modeLoading)")
+		t.Error("scope change should trigger a reload (modeLoading)")
+	}
+}
+
+// Typing narrows the run list client-side; esc clears it.
+func TestListTypeToFilter(t *testing.T) {
+	a := NewApp(nil, AppConfig{Filter: rwx.ListFilter{Limit: 30}})
+	m, _ := a.Update(runsLoadedMsg{runs: loadRunList(t)})
+	a = m.(App)
+	total := len(a.runs)
+
+	pressRunes(&a, "prime") // matches only the prime-cache run's definition
+	if got := len(a.visibleRuns()); got == 0 || got >= total {
+		t.Errorf("filter 'prime' should narrow rows: %d of %d", got, total)
+	}
+	if a.listFilter != "prime" {
+		t.Errorf("listFilter = %q, want prime", a.listFilter)
+	}
+
+	sendType(&a, tea.KeyEsc) // clears the filter
+	if a.listFilter != "" {
+		t.Errorf("esc should clear the list filter, got %q", a.listFilter)
+	}
+	if len(a.visibleRuns()) != total {
+		t.Errorf("cleared filter should show all %d rows", total)
 	}
 }
 
